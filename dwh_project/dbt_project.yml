@@ -24,7 +24,13 @@ clean-targets:
 # ─────────────────────────────────────────────────────────────
 vars:
   raw_database: "{{ env_var('SRC_DB', 'dwh') }}"
-  raw_schema: "{{ env_var('SRC_SCHEMA', 'raw_ext') }}"
+  raw_schema: "{{ env_var('SRC_SCHEMA', 'raw') }}"
+
+seeds:
+  dwh_project:
+    videos_id_agency:
+      +column_types:
+        video_id: varchar
 
 # ─────────────────────────────────────────────────────────────
 # ĐÍCH: schema output cho từng tầng model.
