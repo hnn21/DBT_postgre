@@ -1,0 +1,114 @@
+version: 2
+
+models:
+  - name: mart_data
+    description: >
+      Bảng rộng tái tạo bảng `data` của MVA_VideoAFF.pbix: cột gốc performance_list
+      + 14 cột tính toán (prod_contain, prod_contain_combo, Loại video, Ngày gửi mẫu,
+      duration_date, video_duoctinhPFM, DK Creator được gửi mẫu, DK Time air video,
+      Phân loại Creator, Group creator, PIC, Team, Vị trí, Mẫu gửi).
+    columns:
+      - name: video_id
+        description: "Khóa video."
+
+unit_tests:
+  # ── Nhóm 1: sản phẩm & loại video ──────────────────────────────
+  - name: ut_mart_prod_and_loaivideo
+    model: mart_data
+    given:
+      - input: ref('stg_performance_list')
+        rows:
+          - {video_id: "v1", time: "2025-03-01", product_name: "DHC combo b mix", creator_name: "a"}
+          - {video_id: "v2", time: "2025-03-01", product_name: "Togishi kem chống nắng", creator_name: "b"}
+      - input: ref('stg_product_name_map')
+        rows:
+          - {video_id: "v1", product_contain: "b mix", product_contain_combo: "combo b mix + c"}
+      - input: ref('int_send_sample')
+        rows: []
+      - input: ref('int_valid_classification')
+        rows: []
+      - input: ref('videos_id_agency')
+        rows:
+          - {video_id: "v2"}
+    expect:
+      rows:
+        - {video_id: "v1", prod_contain: "b mix", prod_contain_combo: "combo b mix + c", "Loại video": "Video thường"}
+        - {video_id: "v2", prod_contain: "Kem chống nắng", prod_contain_combo: "Kem chống nắng", "Loại video": "Video AI"}
+
+  # ── Nhóm 2: gửi mẫu & thời gian (run_date cố định 2025-03-20) ───
+  - name: ut_mart_duration
+    model: mart_data
+    overrides:
+      vars:
+        run_date: "2025-03-20"
+    given:
+      - input: ref('stg_performance_list')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a"}
+      - input: ref('stg_product_name_map')
+        rows:
+          - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
+      - input: ref('int_send_sample')
+        rows:
+          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "An", team: "T1", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "S"}
+      - input: ref('int_valid_classification')
+        rows:
+          - {phan_loai_creator: "S"}
+      - input: ref('videos_id_agency')
+        rows: []
+    expect:
+      rows:
+        # _check_today = 2025-03-20 - 2025-03-10 = 10 <= 30 -> duration_date = 7
+        - {video_id: "v1", "Ngày gửi mẫu": "2025-03-05", duration_date: 7, "video_duoctinhPFM": 1, "DK Creator được gửi mẫu": "Có gửi mẫu", "DK Time air video": "Thỏa mãn ĐK thời gian là sau khi gửi mẫu"}
+
+  # ── Nhóm 3: phân loại creator ──────────────────────────────────
+  - name: ut_mart_phanloai
+    model: mart_data
+    overrides:
+      vars:
+        run_date: "2025-03-20"
+    given:
+      - input: ref('stg_performance_list')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a"}
+      - input: ref('stg_product_name_map')
+        rows:
+          - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
+      - input: ref('int_send_sample')
+        rows:
+          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "An", team: "T1", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "S"}
+          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-06", ngay_ket_thuc: "2099-12-31", pic_rename: "An", team: "T1", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "L1"}
+      - input: ref('int_valid_classification')
+        rows:
+          - {phan_loai_creator: "S"}
+      - input: ref('videos_id_agency')
+        rows: []
+    expect:
+      # priority S=3 < L1=6 -> chọn S; S ∈ whitelist; PFM=1 -> "S"; group không chứa L* -> "S"
+      rows:
+        - {video_id: "v1", "Phân loại Creator": "S", "Group creator": "S"}
+
+  # ── Nhóm 4: PIC / Team / Vị trí / Mẫu gửi ──────────────────────
+  - name: ut_mart_pic_team_vitri_maugui
+    model: mart_data
+    overrides:
+      vars:
+        run_date: "2025-03-20"
+    given:
+      - input: ref('stg_performance_list')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a"}
+      - input: ref('stg_product_name_map')
+        rows:
+          - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
+      - input: ref('int_send_sample')
+        rows:
+          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", team: "T1", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S"}
+      - input: ref('int_valid_classification')
+        rows:
+          - {phan_loai_creator: "S"}
+      - input: ref('videos_id_agency')
+        rows: []
+    expect:
+      rows:
+        - {video_id: "v1", "PIC": "Anh", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "mẫu A"}
