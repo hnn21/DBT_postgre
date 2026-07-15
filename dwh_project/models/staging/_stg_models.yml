@@ -1,22 +1,33 @@
 version: 2
 
 models:
-  - name: stg_orders
-    description: "Đơn hàng đã làm sạch."
+  - name: stg_performance_list
+    description: "Hiệu suất video đã làm sạch (bỏ '\\', ép ngày/số)."
     columns:
-      - name: order_id
-        description: "Khóa chính."
-        data_tests:
-          - unique
-          - not_null
-      - name: customer_id
-        data_tests:
-          - not_null
+      - name: video_id
+      - name: time
+  - name: stg_send_sample
+    description: "Gửi mẫu đã làm sạch (TRIM/REPLACE KOC/KOL, COALESCE phân loại 'L1', lọc rỗng)."
+    columns:
+      - name: koc_kol
+        data_tests: [not_null]
+  - name: stg_product_name_map
+    description: "Map video_id -> tên SP chuẩn."
+    columns:
+      - name: video_id
+        data_tests: [not_null]
+  - name: stg_pic_team
+    description: "Map tên PIC gốc -> tên đổi + team."
 
-  - name: stg_customers
-    description: "Khách hàng đã làm sạch."
-    columns:
-      - name: customer_id
-        data_tests:
-          - unique
-          - not_null
+unit_tests:
+  - name: ut_stg_send_sample_cleanup
+    description: "Chuẩn hóa KOC/KOL (bỏ @, thường hóa Vinhchinchu), COALESCE phân loại 'L1', lọc dòng KOC/KOL rỗng."
+    model: stg_send_sample
+    given:
+      - input: source('raw', 'send_sample')
+        rows:
+          - {ngay_duyet_mau: "2025-01-05", koc_kol: "@Vinhchinchu ", pic: "An", phan_loai_creator: "", nguon_yeu_cau: "x", ten_san_pham: "DHC Vitamin C", sl: "3", sheet: "s1", so_video: "2", mst_cccd: "1", ma_don_hang: "d1", vi_tri: "top", cost: "1000", sdt: "09"}
+          - {ngay_duyet_mau: "2025-01-06", koc_kol: "", pic: "An", phan_loai_creator: "S", nguon_yeu_cau: "x", ten_san_pham: "y", sl: "1", sheet: "s1", so_video: "1", mst_cccd: "1", ma_don_hang: "d2", vi_tri: "top", cost: "1", sdt: "09"}
+    expect:
+      rows:
+        - {koc_kol: "vinhchinchu", phan_loai_creator: "L1", sl: 3, cost: 1000}

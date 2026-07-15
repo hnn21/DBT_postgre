@@ -1,0 +1,26 @@
+with src as (select * from {{ source('raw','performance_list') }})
+select
+    creator_id, video_id,
+    nullif(time,'')::date                                as time,
+    replace(creator_name, '\', '')                       as creator_name,
+    replace(product_name, '\', '')                       as product_name,
+    nullif(vv,'')::numeric::bigint                       as vv,
+    nullif(comment,'')::numeric::bigint                  as comment,
+    nullif(share,'')::numeric::bigint                    as share,
+    nullif(new_follower,'')::numeric::bigint             as new_follower,
+    nullif(clicks_from_view_to_like,'')::numeric::bigint as clicks_from_view_to_like,
+    nullif(product_impressions,'')::numeric::bigint      as product_impressions,
+    nullif(click_on_the_product,'')::numeric::bigint     as click_on_the_product,
+    customer,
+    nullif(count_order,'')::numeric::bigint              as count_order,
+    nullif(unit_sales,'')::numeric::bigint               as unit_sales,
+    nullif(video_revenue,'')::numeric::bigint            as video_revenue,
+    nullif(gpm,'')::numeric::bigint                      as gpm,
+    nullif(gmv,'')::numeric::bigint                      as gmv,
+    nullif(ctr,'')::numeric::bigint                      as ctr,
+    nullif(view_to_like_ratio,'')::double precision      as view_to_like_ratio,
+    nullif(video_viewing_rate,'')::double precision      as video_viewing_rate,
+    nullif(co_ratio,'')::double precision                as co_ratio,
+    nullif(date_file_excel,'')::date                     as date_file_excel,
+    brand
+from src
