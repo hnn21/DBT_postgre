@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: int_send_sample
+    description: "Table_send_sample đầy đủ với cột phái sinh."
+  - name: int_valid_classification
+    description: "Whitelist phân loại creator hợp lệ."
+
+unit_tests:
+  - name: ut_int_send_sample_derived
+    description: "prod_contain (SWITCH), pic_rename/team (join PIC_Team), product_detail (sheet adolph), ngay_ket_thuc (LEAD - 1 ngày)."
+    model: int_send_sample
+    given:
+      - input: ref('stg_send_sample')
+        rows:
+          - {ngay_duyet_mau: "2025-01-01", koc_kol: "a", pic: "An", phan_loai_creator: "S", ten_san_pham: "DHC Vitamin C mini", sheet: "adolph_s", sl: 2, vi_tri: "top", cost: 1}
+          - {ngay_duyet_mau: "2025-02-01", koc_kol: "a", pic: "An", phan_loai_creator: "S", ten_san_pham: "DHC Vitamin C mini", sheet: "dhc",      sl: 1, vi_tri: "top", cost: 1}
+      - input: ref('stg_pic_team')
+        rows:
+          - {raw_name: "An", doi_ten: "Anh", team: "T1"}
+    expect:
+      rows:
+        - {ngay_duyet_mau: "2025-01-01", prod_contain: "vitamin c", pic_rename: "Anh", team: "T1", product_detail: "vitamin c", ngay_ket_thuc: "2025-01-31"}
+        - {ngay_duyet_mau: "2025-02-01", prod_contain: "vitamin c", pic_rename: "Anh", team: "T1", product_detail: "DHC Vitamin C mini", ngay_ket_thuc: "2099-12-31"}
+
+  - name: ut_int_valid_classification
+    description: "DISTINCT phân loại hợp lệ (loại quà/nghiệm/house/rỗng) UNION {T, L2.1, L2.2}."
+    model: int_valid_classification
+    given:
+      - input: ref('stg_send_sample')
+        rows:
+          - {phan_loai_creator: "S"}
+          - {phan_loai_creator: "quà tặng"}
+          - {phan_loai_creator: "S"}
+          - {phan_loai_creator: ""}
+    expect:
+      rows:
+        - {phan_loai_creator: "S"}
+        - {phan_loai_creator: "T"}
+        - {phan_loai_creator: "L2.1"}
+        - {phan_loai_creator: "L2.2"}
