@@ -11,11 +11,18 @@ $env:DBT_PROFILES_DIR = $PSScriptRoot
 # --- Bắt buộc trên Windows: ép Python đọc file UTF-8 (comment tiếng Việt) ---
 $env:PYTHONUTF8 = "1"
 
-# ─── NGUỒN raw (đọc qua source()) ───────────────────────────────
-# Với FDW: SRC_DB = database đích, SRC_SCHEMA = schema chứa bảng ảo (vd raw_ext).
-# Với load-sẵn: trỏ tới schema đã đổ raw vào.
+# ─── NGUỒN raw mà dbt ĐỌC (source) ──────────────────────────────
+# Trỏ tới schema trên Postgres đích chứa dữ liệu đã load (mặc định 'raw').
 $env:SRC_DB     = "dwh"
-$env:SRC_SCHEMA = "raw_ext"
+$env:SRC_SCHEMA = "raw"
+
+# ─── MySQL (chỉ dùng cho bước EL el\load_raw.py) ─────────────────
+$env:MYSQL_HOST     = "27.71.20.96"
+$env:MYSQL_PORT     = "3306"
+$env:MYSQL_DB       = "tiktok_dashboard"
+$env:MYSQL_USER     = "CHANGE_ME"
+$env:MYSQL_PASSWORD = "CHANGE_ME"
+$env:PG_RAW_SCHEMA  = "raw"
 
 # ─── ĐÍCH 'dev' (nơi ghi kết quả) ───────────────────────────────
 $env:DEST_HOST     = "10.0.0.2"
