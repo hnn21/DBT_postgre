@@ -1,5 +1,11 @@
 -- Bảng rộng KẾT QUẢ: tái tạo bảng `data` của Power BI = cột gốc performance_list
 -- + 14 cột tính toán. Materialized = table (schema marts) trên server đích.
+--
+-- QUAN TRỌNG: `data` có ~4.87M dòng nhưng chỉ ~190k video_id (snapshot lặp).
+-- Các cột phái sinh trong DAX là ROW column phụ thuộc (creator_name, prod_contain, time).
+-- Vì vậy ta tính "pick" ở grain DISTINCT (creator_name, prod_contain, time) rồi JOIN
+-- ngược về từng dòng — vừa ĐÚNG (không gộp nhầm theo video_id) vừa nhanh (tránh
+-- subquery tương quan trên 4.87M dòng).
 {{ config(materialized='table') }}
 
 with base as (select * from {{ ref('stg_performance_list') }}),
@@ -41,8 +47,8 @@ prod as (
     left join pmap p on b.video_id = p.video_id
 ),
 
--- (2) prod_contain_combo, (5) Loại video
-with_cols as (
+-- (2) prod_contain_combo, (5) Loại video  — row level
+enriched as (
     select
         prod.*,
         case when _map_combo ilike '%combo%' then _map_combo else prod_contain end as prod_contain_combo,
@@ -50,37 +56,143 @@ with_cols as (
     from prod
 ),
 
--- (3) Ngày gửi mẫu = MIN(ngay_duyet_mau) khớp creator+prod, SL>0
-gui_mau as (
+-- ── Các grain rút gọn để tính pick ────────────────────────────────
+keys_cpt as (
+    select distinct creator_name, prod_contain, time
+    from enriched
+    where prod_contain is not null and time is not null
+),
+
+-- (3) Ngày gửi mẫu = MIN(ngay_duyet_mau) theo (creator, prod), SL>0
+gui_mau_map as (
+    select s.koc_kol as creator_name, s.prod_contain, min(s.ngay_duyet_mau) as ngay_gui_mau
+    from send s
+    where s.sl > 0 and s.prod_contain is not null and length(s.prod_contain) > 0
+    group by s.koc_kol, s.prod_contain
+),
+
+-- (7) picked classification theo (creator, prod, time): priority nhỏ nhất -> max(fix)
+pl_ranked as (
     select
-        w.*,
-        (select min(s.ngay_duyet_mau)
-         from send s
-         where s.koc_kol = w.creator_name
-           and s.prod_contain = w.prod_contain
-           and s.sl > 0
-           and length(s.prod_contain) > 0) as "Ngày gửi mẫu"
-    from with_cols w
+        k.creator_name, k.prod_contain, k.time,
+        s.phan_loai_creator_fix,
+        case s.phan_loai_creator_fix
+            when 'S+' then 1 when 'T' then 2 when 'S' then 3 when 'M' then 4
+            when 'L2' then 5 when 'L1' then 6 when 'L0' then 7
+            when 'L1.2' then 8 when 'L1.1' then 9 else 999
+        end as priority
+    from keys_cpt k
+    join send s
+      on s.koc_kol = k.creator_name
+     and s.prod_contain = k.prod_contain
+     and s.ngay_duyet_mau <= k.time
+     and (s.ngay_ket_thuc is null or k.time <= s.ngay_ket_thuc)
+),
+pl_pick as (
+    select creator_name, prod_contain, time,
+           max(phan_loai_creator_fix) filter (where priority = min_priority) as picked
+    from (
+        select r.*, min(priority) over (partition by creator_name, prod_contain, time) as min_priority
+        from pl_ranked r
+    ) z
+    group by creator_name, prod_contain, time
+),
+pl_pick_v as (
+    select p.creator_name, p.prod_contain, p.time, p.picked,
+           case when v.phan_loai_creator is not null then p.picked else null end as group_value
+    from pl_pick p
+    left join valid v on p.picked = v.phan_loai_creator
+),
+
+-- (11) PIC theo (creator, prod, time): bản ghi SL>0 có ngay_duyet_mau sớm nhất -> max(pic_rename)
+pic_ranked as (
+    select k.creator_name, k.prod_contain, k.time, s.pic_rename, s.ngay_duyet_mau
+    from keys_cpt k
+    join send s
+      on s.koc_kol = k.creator_name
+     and s.prod_contain = k.prod_contain
+     and s.sl > 0
+     and length(s.prod_contain) > 0 and length(s.koc_kol) > 0
+     and s.ngay_duyet_mau <= k.time
+     and k.time <= s.ngay_ket_thuc
+),
+pic_pick as (
+    select creator_name, prod_contain, time,
+           max(pic_rename) filter (where ngay_duyet_mau = mn) as "PIC"
+    from (
+        select r.*, min(ngay_duyet_mau) over (partition by creator_name, prod_contain, time) as mn
+        from pic_ranked r
+    ) z
+    group by creator_name, prod_contain, time
+),
+
+-- (13)(14) Vị trí, Mẫu gửi theo (creator, prod, time): KHÔNG lọc SL
+vm_ranked as (
+    select k.creator_name, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.ngay_duyet_mau
+    from keys_cpt k
+    join send s
+      on s.koc_kol = k.creator_name
+     and s.prod_contain = k.prod_contain
+     and s.ngay_duyet_mau <= k.time
+     and k.time <= s.ngay_ket_thuc
+),
+vm_pick as (
+    select creator_name, prod_contain, time,
+           max(vi_tri)         filter (where ngay_duyet_mau = mn) as "Vị trí",
+           max(product_detail) filter (where ngay_duyet_mau = mn) as "Mẫu gửi"
+    from (
+        select r.*, min(ngay_duyet_mau) over (partition by creator_name, prod_contain, time) as mn
+        from vm_ranked r
+    ) z
+    group by creator_name, prod_contain, time
+),
+
+-- (12) Team theo PIC (FIRSTNONBLANK ~ max không rỗng)
+team_map as (
+    select pic_rename, max(team) as team
+    from send
+    where team is not null and team <> ''
+    group by pic_rename
+),
+
+-- ── Ráp về từng dòng ──────────────────────────────────────────────
+j as (
+    select
+        e.*,
+        gm.ngay_gui_mau                 as "Ngày gửi mẫu",
+        plv.group_value                 as _group_value,
+        pp."PIC"                        as _pic,
+        vm."Vị trí"                     as _vi_tri,
+        vm."Mẫu gửi"                    as _mau_gui
+    from enriched e
+    left join gui_mau_map gm
+      on e.creator_name = gm.creator_name and e.prod_contain = gm.prod_contain
+    left join pl_pick_v plv
+      on e.creator_name = plv.creator_name and e.prod_contain = plv.prod_contain and e.time = plv.time
+    left join pic_pick pp
+      on e.creator_name = pp.creator_name and e.prod_contain = pp.prod_contain and e.time = pp.time
+    left join vm_pick vm
+      on e.creator_name = vm.creator_name and e.prod_contain = vm.prod_contain and e.time = vm.time
 ),
 
 -- (4) duration_date (dùng run_date thay TODAY())
 duration as (
     select
-        g.*,
+        j.*,
         case
-            when g."Ngày gửi mẫu" is null then -1
-            when g."Ngày gửi mẫu" > g.time then -1
+            when j."Ngày gửi mẫu" is null then -1
+            when j."Ngày gửi mẫu" > j.time then -1
             else case
-                when ({{ run_date() }} - g.time) <= 30 then 7
-                when ({{ run_date() }} - g.time) <= 60 then 6
-                when (g.time - g."Ngày gửi mẫu") <= 7 then 1
-                when (g.time - g."Ngày gửi mẫu") <= 14 then 2
-                when (g.time - g."Ngày gửi mẫu") <= 30 then 3
-                when (g.time - g."Ngày gửi mẫu") <= 90 then 4
+                when ({{ run_date() }} - j.time) <= 30 then 7
+                when ({{ run_date() }} - j.time) <= 60 then 6
+                when (j.time - j."Ngày gửi mẫu") <= 7 then 1
+                when (j.time - j."Ngày gửi mẫu") <= 14 then 2
+                when (j.time - j."Ngày gửi mẫu") <= 30 then 3
+                when (j.time - j."Ngày gửi mẫu") <= 90 then 4
                 else 5
             end
         end as duration_date
-    from gui_mau g
+    from j
 ),
 
 -- (6) video_duoctinhPFM, (9)(10) 2 cột ĐK
@@ -93,35 +205,7 @@ pfm as (
     from duration d
 ),
 
--- (7) Phân loại Creator: TOPN theo priority nhỏ nhất trong khoảng thời gian khớp
-pl_ranked as (
-    select
-        p.video_id,
-        s.phan_loai_creator_fix,
-        case s.phan_loai_creator_fix
-            when 'S+' then 1 when 'T' then 2 when 'S' then 3 when 'M' then 4
-            when 'L2' then 5 when 'L1' then 6 when 'L0' then 7
-            when 'L1.2' then 8 when 'L1.1' then 9 else 999
-        end as priority
-    from pfm p
-    join send s
-      on s.koc_kol = p.creator_name
-     and s.prod_contain = p.prod_contain
-     and s.ngay_duyet_mau <= p.time
-     and (s.ngay_ket_thuc is null or p.time <= s.ngay_ket_thuc)
-),
-
-pl_pick as (
-    select
-        video_id,
-        max(phan_loai_creator_fix) filter (where priority = min_priority) as picked
-    from (
-        select r.*, min(priority) over (partition by video_id) as min_priority
-        from pl_ranked r
-    ) z
-    group by video_id
-),
-
+-- (7) Phân loại Creator (dùng _group_value đã validate + cờ PFM)
 phanloai as (
     select
         p.*,
@@ -129,12 +213,11 @@ phanloai as (
             when p.prod_contain is null or length(p.prod_contain) = 0 then 'Thiếu dữ liệu tên SP'
             else coalesce(
                 case p."video_duoctinhPFM"
-                    when 1 then (select v.phan_loai_creator from valid v where v.phan_loai_creator = pp.picked)
+                    when 1 then p._group_value
                     when 0 then 'Organic'
                 end, 'Organic')
         end as "Phân loại Creator"
     from pfm p
-    left join pl_pick pp on p.video_id = pp.video_id
 ),
 
 -- (8) Group creator
@@ -150,58 +233,31 @@ grp as (
     from phanloai ph
 ),
 
--- (11) PIC: bản ghi gửi mẫu sớm nhất (SL>0) khớp creator+prod trong khoảng thời gian
-pic_pick as (
-    select
-        g.video_id,
-        max(s.pic_rename) filter (where s.ngay_duyet_mau = s.mn) as "PIC"
-    from grp g
-    join lateral (
-        select ss.pic_rename, ss.ngay_duyet_mau,
-               min(ss.ngay_duyet_mau) over () as mn
-        from send ss
-        where ss.koc_kol = g.creator_name
-          and ss.prod_contain = g.prod_contain
-          and ss.sl > 0
-          and ss.prod_contain is not null and length(ss.prod_contain) > 0
-          and ss.koc_kol is not null and length(ss.koc_kol) > 0
-          and ss.ngay_duyet_mau <= g.time
-          and g.time <= ss.ngay_ket_thuc
-    ) s on true
-    group by g.video_id
-),
-
--- (13)(14) Vị trí, Mẫu gửi: bản ghi sớm nhất khớp creator+prod (KHÔNG lọc SL)
-vitri_maugui_pick as (
-    select
-        g.video_id,
-        max(s.vi_tri)         filter (where s.ngay_duyet_mau = s.mn) as "Vị trí",
-        max(s.product_detail) filter (where s.ngay_duyet_mau = s.mn) as "Mẫu gửi"
-    from grp g
-    join lateral (
-        select ss.vi_tri, ss.product_detail, ss.ngay_duyet_mau,
-               min(ss.ngay_duyet_mau) over () as mn
-        from send ss
-        where ss.koc_kol = g.creator_name
-          and ss.prod_contain = g.prod_contain
-          and ss.ngay_duyet_mau <= g.time
-          and g.time <= ss.ngay_ket_thuc
-    ) s on true
-    group by g.video_id
-),
-
 final as (
     select
-        g.*,
-        pp."PIC",
-        -- (12) Team theo PIC (FIRSTNONBLANK ~ max không rỗng)
-        (select max(s.team) from send s
-         where s.pic_rename = pp."PIC" and s.team is not null and s.team <> '') as "Team",
-        vm."Vị trí",
-        vm."Mẫu gửi"
+        -- 24 cột gốc (performance_list)
+        g.creator_id, g.video_id, g.time, g.creator_name, g.product_name,
+        g.vv, g.comment, g.share, g.new_follower, g.clicks_from_view_to_like,
+        g.product_impressions, g.click_on_the_product, g.customer, g.count_order,
+        g.unit_sales, g.video_revenue, g.gpm, g.gmv, g.ctr,
+        g.view_to_like_ratio, g.video_viewing_rate, g.co_ratio, g.date_file_excel, g.brand,
+        -- 14 cột tính toán
+        g.prod_contain,
+        g.prod_contain_combo,
+        g."Loại video",
+        g."Ngày gửi mẫu",
+        g.duration_date,
+        g."video_duoctinhPFM",
+        g."DK Creator được gửi mẫu",
+        g."DK Time air video",
+        g."Phân loại Creator",
+        g."Group creator",
+        g._pic     as "PIC",
+        tm.team    as "Team",
+        g._vi_tri  as "Vị trí",
+        g._mau_gui as "Mẫu gửi"
     from grp g
-    left join pic_pick pp on g.video_id = pp.video_id
-    left join vitri_maugui_pick vm on g.video_id = vm.video_id
+    left join team_map tm on g._pic = tm.pic_rename
 )
 
 select * from final

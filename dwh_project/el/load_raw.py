@@ -54,7 +54,10 @@ def main():
     with pg.begin() as c:
         c.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"'))
     for tbl, q in QUERIES.items():
-        df = pd.read_sql(q, myconn).astype(str).where(lambda x: x.notna(), None)
+        df = pd.read_sql(q, myconn)
+        # Ép mọi cột về text NHƯNG giữ NULL thật (không biến NaN/NaT thành chuỗi 'nan').
+        # Thứ tự quan trọng: mask NA -> None TRƯỚC, rồi mới astype(object).
+        df = df.astype(object).where(df.notna(), None)
         df.to_sql(tbl, pg, schema=RAW, if_exists="replace", index=False, chunksize=5000)
         print(f"{RAW}.{tbl}: {len(df)} rows")
     myconn.close()
