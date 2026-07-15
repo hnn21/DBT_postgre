@@ -1,0 +1,40 @@
+name: 'dwh_project'
+version: '1.0.0'
+config-version: 2
+
+# Trỏ tới profile trong profiles.yml (đặt cùng thư mục này, xem README)
+profile: 'dwh_project'
+
+# Vị trí các loại file
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# ─────────────────────────────────────────────────────────────
+# NGUỒN LINH HOẠT: mọi thứ về nguồn raw đẩy ra biến môi trường.
+# Đổi nguồn khi chạy bằng: --vars '{raw_schema: xxx}' hoặc set env SRC_*
+# ─────────────────────────────────────────────────────────────
+vars:
+  raw_database: "{{ env_var('SRC_DB', 'dwh') }}"
+  raw_schema: "{{ env_var('SRC_SCHEMA', 'raw_ext') }}"
+
+# ─────────────────────────────────────────────────────────────
+# ĐÍCH: schema output cho từng tầng model.
+# staging = view (nhẹ), marts = table (vật lý hóa kết quả cuối)
+# ─────────────────────────────────────────────────────────────
+models:
+  dwh_project:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts

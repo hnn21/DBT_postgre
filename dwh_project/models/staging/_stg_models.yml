@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: stg_orders
+    description: "Đơn hàng đã làm sạch."
+    columns:
+      - name: order_id
+        description: "Khóa chính."
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        data_tests:
+          - not_null
+
+  - name: stg_customers
+    description: "Khách hàng đã làm sạch."
+    columns:
+      - name: customer_id
+        data_tests:
+          - unique
+          - not_null

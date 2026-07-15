@@ -1,0 +1,16 @@
+version: 2
+
+# ─────────────────────────────────────────────────────────────
+# NGUỒN raw — database/schema đọc động từ vars (dbt_project.yml).
+# Không sửa file này khi đổi nguồn; chỉ đổi env SRC_* hoặc --vars.
+# ─────────────────────────────────────────────────────────────
+sources:
+  - name: raw
+    database: "{{ var('raw_database') }}"
+    schema: "{{ var('raw_schema') }}"
+    description: "Dữ liệu raw (qua postgres_fdw hoặc schema đã load sẵn)."
+    tables:
+      - name: orders
+        description: "Đơn hàng thô từ server nguồn."
+      - name: customers
+        description: "Khách hàng thô từ server nguồn."

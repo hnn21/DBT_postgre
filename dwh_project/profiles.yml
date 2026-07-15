@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────
+# profiles.yml — thông tin KẾT NỐI ĐÍCH (nơi dbt ghi kết quả).
+# Đặt cùng thư mục project; các script env.*.ps1 đã set DBT_PROFILES_DIR trỏ vào đây.
+# KHÔNG hardcode mật khẩu -> tất cả đọc từ biến môi trường (do env.*.ps1 nạp).
+# Đổi đích khi chạy bằng:  dbt run --target prod
+# ─────────────────────────────────────────────────────────────────────────
+dwh_project:
+  target: dev                       # đích mặc định nếu không truyền --target
+  outputs:
+
+    dev:                            # đích 1 — ví dụ Server B (môi trường dev)
+      type: postgres
+      host: "{{ env_var('DEST_HOST') }}"
+      port: "{{ env_var('DEST_PORT', '5432') | int }}"
+      user: "{{ env_var('DEST_USER') }}"
+      password: "{{ env_var('DEST_PASSWORD') }}"
+      dbname: "{{ env_var('DEST_DB') }}"
+      schema: "{{ env_var('DEST_SCHEMA', 'staging') }}"
+      threads: 4
+      keepalives_idle: 0
+      connect_timeout: 10
+
+    prod:                           # đích 2 — ví dụ Server C (môi trường prod)
+      type: postgres
+      host: "{{ env_var('PROD_HOST') }}"
+      port: "{{ env_var('PROD_PORT', '5432') | int }}"
+      user: "{{ env_var('PROD_USER') }}"
+      password: "{{ env_var('PROD_PASSWORD') }}"
+      dbname: "{{ env_var('PROD_DB') }}"
+      schema: "{{ env_var('PROD_SCHEMA', 'staging') }}"
+      threads: 8
+      keepalives_idle: 0
+      connect_timeout: 10
