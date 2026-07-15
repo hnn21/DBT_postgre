@@ -131,6 +131,13 @@ Xây bằng chuỗi CTE, mỗi CTE thêm cột. Các phép "lấy 1 bản ghi kh
 3. Ưu tiên bắt đầu từ các cột đơn giản (prod_contain, loai_video) rồi mở rộng.
 4. Lưu ý: `duration_date` và các cột phụ thuộc phụ thuộc `current_date` — khi so khớp phải chạy dbt cùng ngày với thời điểm chụp dữ liệu Power BI.
 
+## 8b. Grain (phát hiện khi review)
+`data` có ~4.87M dòng nhưng chỉ ~190k `video_id` (snapshot lặp theo `date_file_excel`).
+Các cột DAX là ROW column phụ thuộc `(creator_name, prod_contain, time)`. Do đó `mart_data`
+tính các "pick" (`Ngày gửi mẫu`, `Phân loại Creator`, `PIC`, `Vị trí`, `Mẫu gửi`) ở grain
+DISTINCT `(creator_name, prod_contain, time)` rồi JOIN ngược về từng dòng — KHÔNG gom theo
+`video_id` (sẽ sai) và tránh subquery tương quan trên 4.87M dòng (quá chậm).
+
 ## 9. Rủi ro / điểm cần xác nhận
 - **Khác biệt luật `prod_contain`** giữa `data` và `Table_send_sample` (thứ tự & vài điều kiện) — đã giữ đúng theo từng bảng.
 - **So khớp chuỗi tiếng Việt**: đảm bảo collation/không phân biệt hoa thường giống `CONTAINSSTRING` (dùng `ilike` + unaccent nếu cần).
