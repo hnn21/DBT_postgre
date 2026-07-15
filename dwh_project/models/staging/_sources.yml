@@ -1,16 +1,20 @@
 version: 2
 
 # ─────────────────────────────────────────────────────────────
-# NGUỒN raw — database/schema đọc động từ vars (dbt_project.yml).
-# Không sửa file này khi đổi nguồn; chỉ đổi env SRC_* hoặc --vars.
+# NGUỒN raw — 4 bảng đã load từ MySQL sang schema raw trên Postgres.
+# database/schema đọc động từ vars (dbt_project.yml). Đổi nguồn bằng
+# env SRC_* hoặc --vars '{raw_schema: xxx}'.
 # ─────────────────────────────────────────────────────────────
 sources:
   - name: raw
     database: "{{ var('raw_database') }}"
     schema: "{{ var('raw_schema') }}"
-    description: "Dữ liệu raw (qua postgres_fdw hoặc schema đã load sẵn)."
     tables:
-      - name: orders
-        description: "Đơn hàng thô từ server nguồn."
-      - name: customers
-        description: "Khách hàng thô từ server nguồn."
+      - name: performance_list
+        description: "Hiệu suất video TikTok (base của bảng data)."
+      - name: send_sample
+        description: "MVA_KOC_KOL_send_sample — lịch sử gửi mẫu KOC/KOL."
+      - name: product_name_map
+        description: "get_product_name_from_video_tiktok — map video_id -> tên SP chuẩn."
+      - name: pic_team
+        description: "PIC_Team — map tên PIC gốc -> tên đổi + team."
