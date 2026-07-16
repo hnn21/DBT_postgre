@@ -1,15 +1,21 @@
 """EL: load 4 bảng MySQL (tiktok_dashboard) -> schema `raw` trên PostgreSQL.
 
 Mọi cột nạp dạng text (raw thật), việc làm sạch/ép kiểu thuộc về tầng staging của dbt.
-Chạy TRƯỚC `dbt run`. Load kiểu replace-full (thay toàn bộ bảng).
+Chạy TRƯỚC `dbt build`. Load kiểu replace-full (drop + create + COPY).
 
-Cách chạy (PowerShell, sau khi . .\env.mva.ps1):
+Kỹ thuật: đọc MySQL bằng server-side cursor (SSCursor) theo lô -> ghi Postgres bằng
+COPY (FORMAT csv). Nhẹ RAM (không nạp cả bảng vào bộ nhớ) và nhanh với bảng lớn.
+
+Cách chạy (tự đọc connections.env):
     ..\venv\Scripts\python.exe el\load_raw.py
 """
+import csv
+import io
 import os
-import pandas as pd
-import pymysql  # noqa: F401  (đảm bảo driver có mặt)
-from sqlalchemy import create_engine, text
+
+import psycopg2
+import pymysql
+import pymysql.cursors
 from sqlalchemy.engine import URL
 
 
@@ -42,16 +48,21 @@ MY = dict(
     database=os.environ["MYSQL_DB"],
     charset="utf8mb4",
 )
-# URL.create tự escape ký tự đặc biệt trong mật khẩu (@ ; ~ } ...)
-PG_URL = URL.create(
-    "postgresql+psycopg2",
-    username=os.environ["DEST_USER"],
-    password=os.environ["DEST_PASSWORD"],
+PG = dict(
     host=os.environ["DEST_HOST"],
     port=int(os.getenv("DEST_PORT", "5432")),
-    database=os.environ["DEST_DB"],
+    user=os.environ["DEST_USER"],
+    password=os.environ["DEST_PASSWORD"],
+    dbname=os.environ["DEST_DB"],
+)
+# URL.create dùng cho các script phụ trợ (vd check_conn.py) — escape ký tự đặc biệt.
+PG_URL = URL.create(
+    "postgresql+psycopg2",
+    username=PG["user"], password=PG["password"],
+    host=PG["host"], port=PG["port"], database=PG["dbname"],
 )
 RAW = os.getenv("PG_RAW_SCHEMA", "raw")
+BATCH = 50000
 
 QUERIES = {
     "performance_list": """
@@ -76,19 +87,52 @@ QUERIES = {
 }
 
 
+def copy_table(myconn, pgconn, tbl, query):
+    """Stream MySQL -> Postgres bằng COPY. Trả về số dòng."""
+    cur = myconn.cursor(pymysql.cursors.SSCursor)  # streaming, không nạp cả bảng vào RAM
+    cur.execute(query)
+    cols = [d[0] for d in cur.description]
+
+    pg = pgconn.cursor()
+    pg.execute(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"')
+    pg.execute(f'DROP TABLE IF EXISTS "{RAW}"."{tbl}"')
+    coldefs = ", ".join(f'"{c}" text' for c in cols)
+    pg.execute(f'CREATE TABLE "{RAW}"."{tbl}" ({coldefs})')
+
+    collist = ", ".join(f'"{c}"' for c in cols)
+    # NULL '' : ô rỗng -> NULL (khớp với nullif(x,'') ở tầng staging).
+    copy_sql = f"COPY \"{RAW}\".\"{tbl}\" ({collist}) FROM STDIN WITH (FORMAT csv, NULL '')"
+
+    total = 0
+    while True:
+        rows = cur.fetchmany(BATCH)
+        if not rows:
+            break
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        for r in rows:
+            w.writerow(["" if v is None else str(v) for v in r])
+        buf.seek(0)
+        pg.copy_expert(copy_sql, buf)
+        total += len(rows)
+        print(f"  {tbl}: {total:,}...", flush=True)
+
+    pgconn.commit()
+    cur.close()
+    pg.close()
+    print(f"{RAW}.{tbl}: {total:,} rows", flush=True)
+    return total
+
+
 def main():
     myconn = pymysql.connect(**MY)
-    pg = create_engine(PG_URL)
-    with pg.begin() as c:
-        c.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"'))
-    for tbl, q in QUERIES.items():
-        df = pd.read_sql(q, myconn)
-        # Ép mọi cột về text NHƯNG giữ NULL thật (không biến NaN/NaT thành chuỗi 'nan').
-        # Thứ tự quan trọng: mask NA -> None TRƯỚC, rồi mới astype(object).
-        df = df.astype(object).where(df.notna(), None)
-        df.to_sql(tbl, pg, schema=RAW, if_exists="replace", index=False, chunksize=5000)
-        print(f"{RAW}.{tbl}: {len(df)} rows")
-    myconn.close()
+    pgconn = psycopg2.connect(**PG)
+    try:
+        for tbl, q in QUERIES.items():
+            copy_table(myconn, pgconn, tbl, q)
+    finally:
+        myconn.close()
+        pgconn.close()
 
 
 if __name__ == "__main__":
