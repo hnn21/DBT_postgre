@@ -11,6 +11,15 @@ models:
       - name: video_id
         description: "Khóa video."
 
+  - name: mart_data_agg
+    description: >
+      Tổng hợp số video (distinct) từ mart_data theo tổ hợp chiều
+      (time, brand, prod_contain, prod_contain_combo, Ngày gửi mẫu, Phân loại Creator,
+      Group creator, PIC, Team, Vị trí, Mẫu gửi), chỉ lấy duration_date > 0.
+    columns:
+      - name: so_luong
+        description: "count(distinct video_id) trong mỗi tổ hợp."
+
 unit_tests:
   # ── Nhóm 1: sản phẩm & loại video ──────────────────────────────
   - name: ut_mart_prod_and_loaivideo
