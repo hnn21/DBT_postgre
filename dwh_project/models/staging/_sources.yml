@@ -7,8 +7,8 @@ version: 2
 # ─────────────────────────────────────────────────────────────
 sources:
   - name: raw
-    database: "{{ var('raw_database') }}"
-    schema: "{{ var('raw_schema') }}"
+    database: "{{ var('raw_database', env_var('SRC_DB', 'dwh')) }}"
+    schema: "{{ var('raw_schema', env_var('SRC_SCHEMA', 'raw')) }}"
     tables:
       - name: performance_list
         description: "Hiệu suất video TikTok (base của bảng data)."

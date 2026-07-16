@@ -19,12 +19,11 @@ clean-targets:
   - "dbt_packages"
 
 # ─────────────────────────────────────────────────────────────
-# NGUỒN LINH HOẠT: mọi thứ về nguồn raw đẩy ra biến môi trường.
-# Đổi nguồn khi chạy bằng: --vars '{raw_schema: xxx}' hoặc set env SRC_*
+# NGUỒN LINH HOẠT: database/schema nguồn raw lấy từ env (SRC_DB, SRC_SCHEMA)
+# — khai báo trực tiếp trong models/staging/_sources.yml (env_var + var fallback).
+# Đổi khi chạy: --vars '{raw_schema: xxx}' hoặc set env SRC_*.
+# (KHÔNG đặt Jinja trong vars: ở đây — dbt không render lồng, var() sẽ trả literal.)
 # ─────────────────────────────────────────────────────────────
-vars:
-  raw_database: "{{ env_var('SRC_DB', 'dwh') }}"
-  raw_schema: "{{ env_var('SRC_SCHEMA', 'raw') }}"
 
 seeds:
   dwh_project:
