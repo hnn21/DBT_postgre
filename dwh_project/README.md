@@ -31,7 +31,7 @@ Mọi thông tin server nằm trong MỘT file `connections.env` (KHÔNG commit)
 ## Chạy (MVA)
 ```powershell
 . .\load_connections.ps1               # đọc connections.env -> đặt env (DBT_PROFILES_DIR, PYTHONUTF8...)
-..\venv\Scripts\python.exe el\load_raw.py   # load 4 bảng MySQL -> schema raw (Postgres)
+..\venv\Scripts\python.exe el\load_raw.py --days 30   # incremental theo date_file_excel (bỏ --days = full)
 dbt seed                               # nạp seed videos_id_agency
 dbt build                              # build models + chạy unit tests
 dbt docs generate; dbt docs serve      # xem lineage
