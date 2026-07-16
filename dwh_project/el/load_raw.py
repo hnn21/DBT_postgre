@@ -141,8 +141,10 @@ def full_load(myconn, pgconn, tbl, query):
     cur.execute(query)
     cols = [d[0] for d in cur.description]
     pg.execute(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"')
-    pg.execute(f'DROP TABLE IF EXISTS "{RAW}"."{tbl}"')
-    pg.execute(f'CREATE TABLE "{RAW}"."{tbl}" (' + ", ".join(f'"{c}" text' for c in cols) + ')')
+    # CREATE IF NOT EXISTS + TRUNCATE (không DROP) để không phá các view dbt phụ thuộc.
+    # TRUNCATE có tính giao dịch -> thay dữ liệu nguyên tử khi commit.
+    pg.execute(f'CREATE TABLE IF NOT EXISTS "{RAW}"."{tbl}" (' + ", ".join(f'"{c}" text' for c in cols) + ')')
+    pg.execute(f'TRUNCATE "{RAW}"."{tbl}"')
     _copy_rows(cur, pg, tbl, cols)
     pgconn.commit()
     cur.close()
