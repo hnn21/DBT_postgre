@@ -11,6 +11,22 @@ import pandas as pd
 import pymysql  # noqa: F401  (đảm bảo driver có mặt)
 from sqlalchemy import create_engine, text
 
+
+def _load_env_file(path):
+    """Nạp connections.env vào os.environ (không ghi đè biến đã set sẵn)."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_env_file(os.path.join(os.path.dirname(__file__), "..", "connections.env"))
+
 MY = dict(
     host=os.environ["MYSQL_HOST"],
     port=int(os.getenv("MYSQL_PORT", "3306")),

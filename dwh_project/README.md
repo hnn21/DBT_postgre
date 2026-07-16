@@ -20,18 +20,24 @@ cd dwh_project
 > Lưu ý Windows: script `env.*.ps1` đã set `PYTHONUTF8=1` để dbt đọc được comment
 > tiếng Việt. Nếu chạy dbt mà KHÔNG qua script env, hãy tự set: `$env:PYTHONUTF8="1"`.
 
-## Cấu hình nguồn/đích
-1. Copy `env.example.ps1` -> `env.AtoB.ps1`, điền IP/DB/user/mật khẩu.
-2. (Chỉ nếu dùng FDW) Chạy `setup_fdw.example.sql` trên server đích để tạo bảng ảo.
+## Cấu hình kết nối (cách dùng cho MVA — khuyến nghị)
+Mọi thông tin server nằm trong MỘT file `connections.env` (KHÔNG commit):
+1. `copy connections.env.example connections.env`
+2. Mở `connections.env`, điền `MYSQL_*` (nguồn) và `DEST_*` (Postgres đích).
+3. Nạp vào phiên bằng: `. .\load_connections.ps1`
 
-## Chạy
+`connections.env` được cả dbt (qua `load_connections.ps1`) và script EL (`el/load_raw.py`) đọc.
+
+## Chạy (MVA)
 ```powershell
-. .\env.AtoB.ps1        # nạp tổ hợp nguồn->đích (cũng set DBT_PROFILES_DIR)
-dbt debug               # kiểm tra kết nối đích
-dbt run                 # build models -> ghi kết quả lên đích 'dev'
-dbt test                # chạy test
-dbt docs generate; dbt docs serve   # xem lineage
+. .\load_connections.ps1               # đọc connections.env -> đặt env (DBT_PROFILES_DIR, PYTHONUTF8...)
+..\venv\Scripts\python.exe el\load_raw.py   # load 4 bảng MySQL -> schema raw (Postgres)
+dbt seed                               # nạp seed videos_id_agency
+dbt build                              # build models + chạy unit tests
+dbt docs generate; dbt docs serve      # xem lineage
 ```
+> Cách cũ dùng `env.*.ps1` (đặt secret thẳng trong script) vẫn hoạt động cho các
+> dự án FDW khác, nhưng với MVA hãy dùng `connections.env` cho gọn và an toàn.
 
 ## Đổi nguồn / đích linh hoạt
 ```powershell

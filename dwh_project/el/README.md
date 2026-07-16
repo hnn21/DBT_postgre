@@ -18,11 +18,12 @@
 ## Chạy (PowerShell)
 ```powershell
 cd D:\PTDL\DBT_postgre\dwh_project
-. .\env.mva.ps1                       # nạp MYSQL_*, DEST_*, PG_RAW_SCHEMA
 ..\venv\Scripts\python.exe el\load_raw.py
 ```
-Kỳ vọng in ra 4 dòng `raw.<tbl>: N rows` với N > 0.
+Script tự đọc `connections.env` ở thư mục project. Kỳ vọng in ra 4 dòng
+`raw.<tbl>: N rows` với N > 0.
 
-## Biến môi trường cần có (đặt trong env.mva.ps1)
-`MYSQL_HOST, MYSQL_PORT, MYSQL_DB, MYSQL_USER, MYSQL_PASSWORD`,
-`DEST_HOST, DEST_PORT, DEST_DB, DEST_USER, DEST_PASSWORD`, `PG_RAW_SCHEMA` (mặc định `raw`).
+## Thông tin cần có (trong connections.env)
+`MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB`,
+`DEST_HOST, DEST_PORT, DEST_USER, DEST_PASSWORD, DEST_DB`.
+(`PG_RAW_SCHEMA` mặc định `raw` nếu không đặt.)
