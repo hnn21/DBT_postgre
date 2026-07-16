@@ -10,10 +10,14 @@ import os
 import pandas as pd
 import pymysql  # noqa: F401  (đảm bảo driver có mặt)
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 
 def _load_env_file(path):
-    """Nạp connections.env vào os.environ (không ghi đè biến đã set sẵn)."""
+    """Nạp connections.env vào os.environ (không ghi đè biến đã set sẵn).
+
+    Hỗ trợ cả giá trị có/không bọc dấu ngoặc: MYSQL_USER="abc" hoặc MYSQL_USER=abc.
+    """
     if not os.path.exists(path):
         return
     with open(path, encoding="utf-8") as f:
@@ -22,7 +26,10 @@ def _load_env_file(path):
             if not line or line.startswith("#") or "=" not in line:
                 continue
             k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+            v = v.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                v = v[1:-1]  # bỏ dấu ngoặc bao ngoài
+            os.environ.setdefault(k.strip(), v)
 
 
 _load_env_file(os.path.join(os.path.dirname(__file__), "..", "connections.env"))
@@ -35,9 +42,14 @@ MY = dict(
     database=os.environ["MYSQL_DB"],
     charset="utf8mb4",
 )
-PG_URL = (
-    f"postgresql+psycopg2://{os.environ['DEST_USER']}:{os.environ['DEST_PASSWORD']}"
-    f"@{os.environ['DEST_HOST']}:{os.getenv('DEST_PORT', '5432')}/{os.environ['DEST_DB']}"
+# URL.create tự escape ký tự đặc biệt trong mật khẩu (@ ; ~ } ...)
+PG_URL = URL.create(
+    "postgresql+psycopg2",
+    username=os.environ["DEST_USER"],
+    password=os.environ["DEST_PASSWORD"],
+    host=os.environ["DEST_HOST"],
+    port=int(os.getenv("DEST_PORT", "5432")),
+    database=os.environ["DEST_DB"],
 )
 RAW = os.getenv("PG_RAW_SCHEMA", "raw")
 

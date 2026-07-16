@@ -18,6 +18,14 @@ Get-Content $envFile | ForEach-Object {
     if ($idx -lt 1) { return }
     $key = $line.Substring(0, $idx).Trim()
     $val = $line.Substring($idx + 1).Trim()
+    # Bỏ dấu ngoặc bao ngoài nếu có: KEY="value" hoặc KEY='value'
+    if ($val.Length -ge 2) {
+        $first = $val.Substring(0, 1)
+        $last  = $val.Substring($val.Length - 1, 1)
+        if (($first -eq '"' -and $last -eq '"') -or ($first -eq "'" -and $last -eq "'")) {
+            $val = $val.Substring(1, $val.Length - 2)
+        }
+    }
     Set-Item -Path "Env:$key" -Value $val
 }
 
