@@ -88,10 +88,12 @@ keys_cpt as (
 
 -- (3) Ngày gửi mẫu = MIN(ngay_duyet_mau) theo (creator, prod), SL>0
 gui_mau_map as (
-    select s.koc_kol as creator_name, s.prod_contain, min(s.ngay_duyet_mau) as ngay_gui_mau
+    -- Gom theo lower(koc_kol) để khớp creator KHÔNG phân biệt hoa/thường (như DAX)
+    -- và tránh fan-out nếu send có cả 'Abc' lẫn 'abc'.
+    select lower(s.koc_kol) as creator_key, s.prod_contain, min(s.ngay_duyet_mau) as ngay_gui_mau
     from send s
     where s.sl > 0 and s.prod_contain is not null and length(s.prod_contain) > 0
-    group by s.koc_kol, s.prod_contain
+    group by lower(s.koc_kol), s.prod_contain
 ),
 
 -- (7) picked classification theo (creator, prod, time): priority nhỏ nhất -> max(fix)
@@ -106,7 +108,7 @@ pl_ranked as (
         end as priority
     from keys_cpt k
     join send s
-      on s.koc_kol = k.creator_name
+      on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
      and s.prod_contain = k.prod_contain
      and s.ngay_duyet_mau <= k.time
      and (s.ngay_ket_thuc is null or k.time <= s.ngay_ket_thuc)
@@ -132,7 +134,7 @@ pic_ranked as (
     select k.creator_name, k.prod_contain, k.time, s.pic_rename, s.ngay_duyet_mau
     from keys_cpt k
     join send s
-      on s.koc_kol = k.creator_name
+      on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
      and s.prod_contain = k.prod_contain
      and s.sl > 0
      and length(s.prod_contain) > 0 and length(s.koc_kol) > 0
@@ -154,7 +156,7 @@ vm_ranked as (
     select k.creator_name, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.ngay_duyet_mau
     from keys_cpt k
     join send s
-      on s.koc_kol = k.creator_name
+      on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
      and s.prod_contain = k.prod_contain
      and s.ngay_duyet_mau <= k.time
      and k.time <= s.ngay_ket_thuc
@@ -211,7 +213,7 @@ j as (
         pk._mau_gui                     as _mau_gui
     from enriched e
     left join gui_mau_map gm
-      on e.creator_name = gm.creator_name and e.prod_contain = gm.prod_contain
+      on lower(e.creator_name) = gm.creator_key and e.prod_contain = gm.prod_contain
     left join picks pk
       on e.creator_name = pk.creator_name and e.prod_contain = pk.prod_contain and e.time = pk.time
 ),

@@ -130,3 +130,32 @@ unit_tests:
     expect:
       rows:
         - {video_id: "v1", "PIC": "Anh", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "mẫu A"}
+
+  # ── Nhóm 5: khớp creator KHÔNG phân biệt hoa/thường (như DAX) ───
+  # creator_name 'longhousee' (thường) phải khớp koc_kol 'Longhousee' (hoa).
+  # Trên code cũ (join phân biệt hoa/thường) test này FAIL: các cột pick = null.
+  - name: ut_mart_creator_case_insensitive
+    model: mart_data
+    overrides:
+      macros:
+        is_incremental: false
+      vars:
+        run_date: "2025-03-20"
+    given:
+      - input: ref('stg_performance_list')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "longhousee"}
+      - input: ref('stg_product_name_map')
+        rows:
+          - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
+      - input: ref('int_send_sample')
+        rows:
+          - {koc_kol: "Longhousee", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", team: "T1", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S"}
+      - input: ref('int_valid_classification')
+        rows:
+          - {phan_loai_creator: "S"}
+      - input: ref('videos_id_agency')
+        rows: []
+    expect:
+      rows:
+        - {video_id: "v1", "Ngày gửi mẫu": "2025-03-05", "PIC": "Anh", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "mẫu A", "Phân loại Creator": "S"}
