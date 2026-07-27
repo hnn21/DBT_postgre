@@ -24,6 +24,9 @@ unit_tests:
   # ── Nhóm 1: sản phẩm & loại video ──────────────────────────────
   - name: ut_mart_prod_and_loaivideo
     model: mart_data
+    overrides:
+      macros:
+        is_incremental: false
     given:
       - input: ref('stg_performance_list')
         rows:
@@ -48,6 +51,8 @@ unit_tests:
   - name: ut_mart_duration
     model: mart_data
     overrides:
+      macros:
+        is_incremental: false
       vars:
         run_date: "2025-03-20"
     given:
@@ -74,6 +79,8 @@ unit_tests:
   - name: ut_mart_phanloai
     model: mart_data
     overrides:
+      macros:
+        is_incremental: false
       vars:
         run_date: "2025-03-20"
     given:
@@ -101,6 +108,8 @@ unit_tests:
   - name: ut_mart_pic_team_vitri_maugui
     model: mart_data
     overrides:
+      macros:
+        is_incremental: false
       vars:
         run_date: "2025-03-20"
     given:

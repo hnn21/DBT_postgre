@@ -6,9 +6,32 @@
 -- Vì vậy ta tính "pick" ở grain DISTINCT (creator_name, prod_contain, time) rồi JOIN
 -- ngược về từng dòng — vừa ĐÚNG (không gộp nhầm theo video_id) vừa nhanh (tránh
 -- subquery tương quan trên 4.87M dòng).
-{{ config(materialized='table') }}
+{{ config(
+    materialized='incremental',
+    incremental_strategy='delete+insert',
+    unique_key=['video_id', 'date_file_excel'],
+    pre_hook=["set work_mem = '256MB'", "set jit = off", "set enable_mergejoin = off"],
+    post_hook=["set enable_mergejoin = on"]
+) }}
+-- enable_mergejoin=off: ÉP hash join cho bước ráp cuối (enriched ⋈ picks).
+-- Nếu để mặc định, planner ước tính sai và SORT cả bảng rộng 5M dòng
+-- (external merge ~2GB ra đĩa, ~85% thời gian). picks là CTE materialized nhỏ
+-- (≤~170k dòng) nên các join range nội bộ vẫn nhanh dù chạy bằng hash. post_hook
+-- bật lại để không ảnh hưởng model khác dùng chung connection.
 
-with base as (select * from {{ ref('stg_performance_list') }}),
+-- INCREMENTAL (cửa sổ mặc định 90 ngày, chỉnh khi chạy bằng --vars incr_days):
+--   • Full-refresh: xử lý toàn bộ. Incremental: chỉ nạp lại các file gần đây.
+--   • Cửa sổ N ngày vừa gồm dòng MỚI (date_file_excel mới), vừa nạp lại các dòng
+--     mà duration_date còn "trôi" theo current_date (chỉ khi time >= today-60).
+--     => KHÔNG đặt incr_days < 60 (sẽ bỏ sót dòng còn trôi ở mốc <=60).
+--     Dòng time cũ hơn ổn định → không cần đụng. delete+insert theo
+--     (video_id, date_file_excel) xoá đúng phần trong cửa sổ rồi nạp lại.
+with base as (
+    select * from {{ ref('stg_performance_list') }}
+    {% if is_incremental() %}
+    where date_file_excel >= current_date - {{ var('incr_days', 90) | int }}
+    {% endif %}
+),
 pmap as (select * from {{ ref('stg_product_name_map') }}),
 agency as (select distinct video_id from {{ ref('videos_id_agency') }}),
 send as (select * from {{ ref('int_send_sample') }}),
@@ -155,24 +178,42 @@ team_map as (
     group by pic_rename
 ),
 
+-- ── Gộp toàn bộ "pick" về 1 bảng hẹp cùng grain (creator, prod, time) ──
+-- keys_cpt là "xương sống" (~45k dòng); các pick LEFT JOIN vào đây. Nhờ vậy
+-- bước ráp cuối chỉ còn 1 join enriched⋈picks (khối nhỏ ~45k) → Postgres chọn
+-- HASH JOIN, KHÔNG phải sort cả bảng rộng 5M dòng (trước đây tốn ~85% thời gian
+-- do external merge sort 2GB ra đĩa). Kết quả từng cột giữ nguyên: mỗi dòng
+-- enriched có đúng 1 (creator,prod,time) nên LEFT JOIN cho giá trị y hệt bản cũ.
+picks as materialized (
+    select
+        k.creator_name, k.prod_contain, k.time,
+        plv.group_value as _group_value,
+        pp."PIC"        as _pic,
+        vm."Vị trí"     as _vi_tri,
+        vm."Mẫu gửi"    as _mau_gui
+    from keys_cpt k
+    left join pl_pick_v plv
+      on k.creator_name = plv.creator_name and k.prod_contain = plv.prod_contain and k.time = plv.time
+    left join pic_pick pp
+      on k.creator_name = pp.creator_name and k.prod_contain = pp.prod_contain and k.time = pp.time
+    left join vm_pick vm
+      on k.creator_name = vm.creator_name and k.prod_contain = vm.prod_contain and k.time = vm.time
+),
+
 -- ── Ráp về từng dòng ──────────────────────────────────────────────
 j as (
     select
         e.*,
         gm.ngay_gui_mau                 as "Ngày gửi mẫu",
-        plv.group_value                 as _group_value,
-        pp."PIC"                        as _pic,
-        vm."Vị trí"                     as _vi_tri,
-        vm."Mẫu gửi"                    as _mau_gui
+        pk._group_value                 as _group_value,
+        pk._pic                         as _pic,
+        pk._vi_tri                      as _vi_tri,
+        pk._mau_gui                     as _mau_gui
     from enriched e
     left join gui_mau_map gm
       on e.creator_name = gm.creator_name and e.prod_contain = gm.prod_contain
-    left join pl_pick_v plv
-      on e.creator_name = plv.creator_name and e.prod_contain = plv.prod_contain and e.time = plv.time
-    left join pic_pick pp
-      on e.creator_name = pp.creator_name and e.prod_contain = pp.prod_contain and e.time = pp.time
-    left join vm_pick vm
-      on e.creator_name = vm.creator_name and e.prod_contain = vm.prod_contain and e.time = vm.time
+    left join picks pk
+      on e.creator_name = pk.creator_name and e.prod_contain = pk.prod_contain and e.time = pk.time
 ),
 
 -- (4) duration_date (dùng run_date thay TODAY())
