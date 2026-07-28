@@ -1,4 +1,4 @@
-# RUNBOOK — build 2 bảng marts (`mart_data`, `mart_data_agg`)
+# RUNBOOK — build 3 bảng marts (`mart_data`, `mart_data_agg`, `mart_new_video`)
 
 Các lệnh chạy cho 2 trường hợp: **incremental** (thường ngày) và **full-refresh** (định kỳ).
 
@@ -6,6 +6,9 @@ Các lệnh chạy cho 2 trường hợp: **incremental** (thường ngày) và 
   Cửa sổ nạp lại mặc định **90 ngày** gần nhất (`date_file_excel >= current_date - N`).
 - `mart_data_agg`: materialized = **table** → LUÔN dựng lại toàn bộ từ `mart_data` hiện có.
   Cờ `--full-refresh` KHÔNG đổi hành vi của nó; nó "mới" hay "full" tùy `mart_data`.
+- `mart_new_video`: materialized = **table** → 1 dòng / `video_id`, dựng lại toàn bộ từ `mart_data`.
+  Tái tạo calculated table `table_new_video` của Power BI (đã dedupe, không cộng đôi số đơn/view).
+  Không dùng incremental vì `so_don`/`View` là tổng theo video trên toàn lịch sử.
 
 ## 0. Chuẩn bị (1 lần cho mỗi cửa sổ PowerShell)
 ```powershell
@@ -23,21 +26,23 @@ cd dwh_project
 
 ## 1. INCREMENTAL — chạy THƯỜNG NGÀY (chỉ nạp lại ~cửa sổ ngày gần nhất)
 
-Build cả 2 bảng đúng thứ tự (dbt tự xếp mart_data trước, agg sau):
+Build cả 3 bảng đúng thứ tự:
 ```powershell
-dbt build -s mart_data mart_data_agg
+dbt build -s mart_data+
 ```
+> `mart_data+` = `mart_data` và **mọi model hạ nguồn** (`mart_data_agg`, `mart_new_video`) — dbt tự xếp thứ tự.
 
 Đổi độ dài cửa sổ khi chạy (mặc định 90; ví dụ 120 ngày):
 ```powershell
-dbt build -s mart_data mart_data_agg --vars '{incr_days: 120}'
+dbt build -s mart_data+ --vars '{incr_days: 120}'
 ```
 > ⚠️ Không đặt `incr_days` < 60 — sẽ bỏ sót các dòng `duration_date` còn "trôi" ở mốc `<= 60` ngày.
 
-Nếu muốn tách 2 lệnh (mart_data trước, agg sau):
+Nếu muốn tách từng lệnh (phải chạy `mart_data` TRƯỚC vì 2 bảng kia đọc từ nó):
 ```powershell
 dbt build -s mart_data
 dbt build -s mart_data_agg
+dbt build -s mart_new_video
 ```
 
 ---
@@ -46,10 +51,10 @@ dbt build -s mart_data_agg
 
 Bắt buộc để bắt các thay đổi hồi tố của `send_sample` cho dòng cũ (ngoài cửa sổ incremental):
 ```powershell
-dbt build -s mart_data mart_data_agg --full-refresh
+dbt build -s mart_data+ --full-refresh
 ```
 > `--full-refresh` chỉ tác động lên `mart_data` (bỏ qua filter cửa sổ, dựng lại từ đầu).
-> `mart_data_agg` luôn dựng lại nên không cần cờ; thêm cờ cũng vô hại.
+> `mart_data_agg` và `mart_new_video` luôn dựng lại nên không cần cờ; thêm cờ cũng vô hại.
 
 ---
 
