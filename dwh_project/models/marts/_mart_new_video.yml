@@ -1,0 +1,72 @@
+version: 2
+
+models:
+  - name: mart_new_video
+    description: >
+      1 dòng / video_id — tái tạo calculated table `table_new_video` của
+      MVA_VideoAFF_(new_agg).pbix (SUMMARIZE 10 cột + 2 cột so_don/View), nhưng ĐÃ
+      dedupe về 1 dòng mỗi video (chọn dòng có time nhỏ nhất) nên KHÔNG cộng đôi
+      số đơn / số view như bản DAX. Chỉ gồm video có ít nhất 1 dòng duration_date > 0.
+    columns:
+      - name: video_id
+        description: "Khóa — đúng 1 dòng mỗi video."
+        data_tests: [not_null, unique]
+      - name: time
+        description: "time nhỏ nhất trong các dòng duration_date > 0 của video."
+      - name: so_don
+        description: "SUM(count_order) trên TOÀN BỘ snapshot của video, kể cả dòng duration_date <= 0."
+      - name: View
+        description: "SUM(vv) trên TOÀN BỘ snapshot của video, kể cả dòng duration_date <= 0."
+
+unit_tests:
+  # ── 1: dedupe theo min(time) + totals cộng qua các snapshot ─────
+  - name: ut_new_video_dedupe_min_time
+    description: "2 dòng duration>0 khác time -> 1 dòng; dims lấy từ dòng time nhỏ nhất; so_don/View cộng cả 2 dòng."
+    model: mart_new_video
+    given:
+      - input: ref('mart_data')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "mau1", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, duration_date: 7}
+          - {video_id: "v1", time: "2025-03-15", creator_name: "a", "Mẫu gửi": "mau2", brand: "DHC", "PIC": "P2", "Team": "T2", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "mid", vv: 200, count_order: 2, duration_date: 7}
+    expect:
+      rows:
+        - {video_id: "v1", time: "2025-03-10", "Mẫu gửi": "mau1", "PIC": "P1", "Team": "T1", "Vị trí": "top", so_don: 3, "View": 300}
+
+  # ── 2: tie-break khi cùng min(time) ────────────────────────────
+  - name: ut_new_video_tiebreak
+    description: "Cùng min(time) nhưng khác PIC -> vẫn 1 dòng, lấy max() cho deterministic (Binh > Anh)."
+    model: mart_new_video
+    given:
+      - input: ref('mart_data')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "Anh", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 10, count_order: 1, duration_date: 7}
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "Binh", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 20, count_order: 2, duration_date: 7}
+    expect:
+      rows:
+        - {video_id: "v1", time: "2025-03-10", "PIC": "Binh", so_don: 3, "View": 30}
+
+  # ── 3: dòng duration<=0 KHÔNG làm dims nhưng VẪN cộng vào totals ─
+  - name: ut_new_video_totals_include_all
+    description: "Dòng duration_date <= 0 (time sớm hơn) không được chọn làm dims, nhưng vẫn cộng vào so_don/View — đúng all() của DAX."
+    model: mart_new_video
+    given:
+      - input: ref('mart_data')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, duration_date: 7}
+          - {video_id: "v1", time: "2025-03-05", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P9", "Team": "T9", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "bot", vv: 50, count_order: 5, duration_date: -1}
+    expect:
+      rows:
+        - {video_id: "v1", time: "2025-03-10", "PIC": "P1", "Vị trí": "top", so_don: 6, "View": 150}
+
+  # ── 4: loại video không có dòng duration>0 nào ──────────────────
+  - name: ut_new_video_exclude_no_valid_row
+    description: "Video chỉ có dòng duration_date <= 0 thì không xuất hiện trong bảng."
+    model: mart_new_video
+    given:
+      - input: ref('mart_data')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, duration_date: 7}
+          - {video_id: "v2", time: "2025-03-11", creator_name: "b", "Mẫu gửi": "m", brand: "DHC", "PIC": "P2", "Team": "T2", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 999, count_order: 9, duration_date: -1}
+    expect:
+      rows:
+        - {video_id: "v1", time: "2025-03-10", so_don: 1, "View": 100}
