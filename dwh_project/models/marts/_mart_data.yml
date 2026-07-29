@@ -13,14 +13,40 @@ models:
 
   - name: mart_data_agg
     description: >
-      Tổng hợp số video (distinct) từ mart_data theo tổ hợp chiều
-      (time, brand, prod_contain, prod_contain_combo, Ngày gửi mẫu, Phân loại Creator,
-      Group creator, PIC, Team, Vị trí, Mẫu gửi), chỉ lấy duration_date > 0.
+      Tổng hợp số video (distinct) từ mart_data theo tổ hợp 13 chiều
+      (time, brand, creator_name, duration_date, prod_contain, prod_contain_combo,
+      Ngày gửi mẫu, Phân loại Creator, Group creator, PIC, Team, Vị trí, Mẫu gửi),
+      chỉ lấy duration_date > 0.
     columns:
-      - name: so_luong
+      - name: so_luong_video
         description: "count(distinct video_id) trong mỗi tổ hợp."
 
 unit_tests:
+  # ── Nhóm 0: grain 13 chiều của mart_data_agg ────────────────────
+  - name: ut_agg_grain_13_dims
+    description: >
+      Cùng video qua 2 snapshot với 13 chiều y hệt -> chỉ đếm 1 (count distinct video_id).
+      Khác creator_name -> tách dòng riêng. Khác duration_date -> tách dòng riêng.
+      Dòng duration_date <= 0 bị loại khỏi bảng.
+    model: mart_data_agg
+    given:
+      - input: ref('mart_data')
+        rows:
+          # v1 xuất hiện 2 snapshot, 13 chiều y hệt -> gộp còn 1
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1"}
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1"}
+          # v2 giống mọi chiều nhưng KHÁC creator_name -> dòng riêng
+          - {video_id: "v2", time: "2025-03-10", brand: "DHC", creator_name: "b", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1"}
+          # v4 cùng creator "a" nhưng KHÁC duration_date -> dòng riêng
+          - {video_id: "v4", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 3, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1"}
+          # v3 duration_date <= 0 -> bị loại
+          - {video_id: "v3", time: "2025-03-10", brand: "DHC", creator_name: "c", duration_date: -1, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": null, "Phân loại Creator": "Organic", "Group creator": "Organic", "PIC": null, "Team": null, "Vị trí": null, "Mẫu gửi": null}
+    expect:
+      rows:
+        - {creator_name: "a", duration_date: 3, so_luong_video: 1}
+        - {creator_name: "a", duration_date: 7, so_luong_video: 1}
+        - {creator_name: "b", duration_date: 7, so_luong_video: 1}
+
   # ── Nhóm 1: sản phẩm & loại video ──────────────────────────────
   - name: ut_mart_prod_and_loaivideo
     model: mart_data
