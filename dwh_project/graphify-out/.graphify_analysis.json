@@ -1,0 +1,187 @@
+{
+  "communities": {
+    "0": [
+      "el_load_raw",
+      "el_load_raw_copy_rows",
+      "el_load_raw_full_load",
+      "el_load_raw_main",
+      "el_load_raw_parse_args",
+      "el_load_raw_range_load",
+      "el_load_raw_rationale_1"
+    ],
+    "1": [
+      "el_load_raw_rationale_93",
+      "el_load_raw_resolve_mode",
+      "el_test_load_raw_test_days_non_positive_rejected",
+      "el_test_load_raw_test_days_with_range_rejected",
+      "el_test_load_raw_test_full_when_no_args",
+      "el_test_load_raw_test_to_without_from_rejected"
+    ],
+    "2": [
+      "el_test_load_raw",
+      "el_test_load_raw_test_days_window_from_today",
+      "el_test_load_raw_test_explicit_range",
+      "el_test_load_raw_test_from_after_to_rejected",
+      "el_test_load_raw_test_from_without_to_rejected"
+    ],
+    "3": [
+      "el_check_conn",
+      "el_check_conn_rationale_1"
+    ],
+    "4": [
+      "el_compare",
+      "el_compare_rationale_1"
+    ],
+    "5": [
+      "el_load_raw_load_env_file",
+      "el_load_raw_rationale_25"
+    ],
+    "6": [
+      "env_example"
+    ],
+    "7": [
+      "load_connections"
+    ]
+  },
+  "cohesion": {
+    "0": 0.5238095238095238,
+    "1": 0.3333333333333333,
+    "2": 0.4,
+    "3": 1.0,
+    "4": 1.0,
+    "5": 1.0,
+    "6": 1.0,
+    "7": 1.0
+  },
+  "gods": [
+    {
+      "id": "el_load_raw_resolve_mode",
+      "label": "resolve_mode()",
+      "degree": 11
+    },
+    {
+      "id": "el_load_raw_main",
+      "label": "main()",
+      "degree": 5
+    },
+    {
+      "id": "el_load_raw_copy_rows",
+      "label": "_copy_rows()",
+      "degree": 3
+    },
+    {
+      "id": "el_load_raw_full_load",
+      "label": "full_load()",
+      "degree": 3
+    },
+    {
+      "id": "el_load_raw_range_load",
+      "label": "range_load()",
+      "degree": 3
+    },
+    {
+      "id": "el_load_raw_load_env_file",
+      "label": "_load_env_file()",
+      "degree": 2
+    },
+    {
+      "id": "el_load_raw_parse_args",
+      "label": "parse_args()",
+      "degree": 2
+    },
+    {
+      "id": "el_test_load_raw_test_full_when_no_args",
+      "label": "test_full_when_no_args()",
+      "degree": 2
+    },
+    {
+      "id": "el_test_load_raw_test_days_window_from_today",
+      "label": "test_days_window_from_today()",
+      "degree": 2
+    },
+    {
+      "id": "el_test_load_raw_test_explicit_range",
+      "label": "test_explicit_range()",
+      "degree": 2
+    }
+  ],
+  "surprises": [
+    {
+      "source": "test_days_window_from_today()",
+      "target": "resolve_mode()",
+      "source_files": [
+        "el/test_load_raw.py",
+        "el/load_raw.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities; peripheral node `test_days_window_from_today()` unexpectedly reaches hub `resolve_mode()`"
+    },
+    {
+      "source": "test_explicit_range()",
+      "target": "resolve_mode()",
+      "source_files": [
+        "el/test_load_raw.py",
+        "el/load_raw.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities; peripheral node `test_explicit_range()` unexpectedly reaches hub `resolve_mode()`"
+    },
+    {
+      "source": "test_from_after_to_rejected()",
+      "target": "resolve_mode()",
+      "source_files": [
+        "el/test_load_raw.py",
+        "el/load_raw.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities; peripheral node `test_from_after_to_rejected()` unexpectedly reaches hub `resolve_mode()`"
+    },
+    {
+      "source": "test_from_without_to_rejected()",
+      "target": "resolve_mode()",
+      "source_files": [
+        "el/test_load_raw.py",
+        "el/load_raw.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities; peripheral node `test_from_without_to_rejected()` unexpectedly reaches hub `resolve_mode()`"
+    },
+    {
+      "source": "test_days_non_positive_rejected()",
+      "target": "resolve_mode()",
+      "source_files": [
+        "el/test_load_raw.py",
+        "el/load_raw.py"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; peripheral node `test_days_non_positive_rejected()` unexpectedly reaches hub `resolve_mode()`"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `resolve_mode()` connect `resolve_mode` to `load_raw.py`, `test_load_raw.py`?",
+      "why": "High betweenness centrality (0.320) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `_load_env_file()` connect `_load_env_file` to `load_raw.py`?",
+      "why": "High betweenness centrality (0.073) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `main()` connect `load_raw.py` to `resolve_mode`?",
+      "why": "High betweenness centrality (0.041) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 8 inferred relationships involving `resolve_mode()` (e.g. with `test_days_non_positive_rejected()` and `test_days_window_from_today()`) actually correct?",
+      "why": "`resolve_mode()` has 8 INFERRED edges - model-reasoned connections that need verification."
+    }
+  ]
+}

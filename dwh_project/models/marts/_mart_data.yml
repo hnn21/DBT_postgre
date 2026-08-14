@@ -13,21 +13,44 @@ models:
 
   - name: mart_data_agg
     description: >
-      Tổng hợp số video (distinct) từ mart_data theo tổ hợp 13 chiều
-      (time, brand, creator_name, duration_date, prod_contain, prod_contain_combo,
-      Ngày gửi mẫu, Phân loại Creator, Group creator, PIC, Team, Vị trí, Mẫu gửi),
-      chỉ lấy duration_date > 0.
+      Metric hiệu suất từ mart_data theo tổ hợp 15 chiều (thang, tuan, time, brand,
+      creator_name, duration_date, prod_contain, prod_contain_combo, Ngày gửi mẫu,
+      Phân loại Creator, Group creator, PIC, Team, Vị trí, Mẫu gửi) + video_id.
+      GRAIN = 15 chiều + video_id, tức 1 dòng = 1 video trong 1 tổ hợp chiều.
+      SỐ VIDEO phải đếm bằng count(distinct video_id) / DISTINCTCOUNT(video_id) — KHÔNG
+      cộng số dòng; nhờ giữ video_id, số video đúng ở mọi mức roll-up (tuần/tháng/quý).
+      KHÔNG lọc duration_date — nó là một chiều trong grain, phía báo cáo tự lọc nếu cần.
+      Metric là số phát sinh theo từng snapshot (không lũy kế) nên được SUM trên toàn bộ
+      dòng gốc.
     columns:
-      - name: so_luong_video
-        description: "count(distinct video_id) trong mỗi tổ hợp."
+      - name: video_id
+        description: "Khóa video — nằm TRONG grain. Đếm số video bằng distinct trên cột này."
+      - name: so_view
+        description: "sum(vv) — lượt xem."
+      - name: so_click
+        description: "sum(click_on_the_product) — lượt click vào sản phẩm."
+      - name: so_don
+        description: "sum(count_order) — số đơn."
+      - name: gmv
+        description: "sum(video_revenue) — GMV (lấy từ video_revenue, KHÔNG dùng cột gmv của nguồn)."
+      - name: product_impressions
+        description: "sum(product_impressions) — lượt hiển thị sản phẩm."
+      - name: unit_sales
+        description: "sum(unit_sales) — số sản phẩm bán được."
+      - name: thang
+        description: "to_char(date_file_excel,'YYYY-MM') — tháng của NGÀY FILE SNAPSHOT."
+      - name: tuan
+        description: >
+          to_char(date_file_excel,'IYYY-IW') — tuần ISO của NGÀY FILE SNAPSHOT.
+          Dùng IYYY (không phải YYYY) vì cuối tháng 12 có thể thuộc tuần 1 năm sau.
 
 unit_tests:
-  # ── Nhóm 0: grain 13 chiều của mart_data_agg ────────────────────
-  - name: ut_agg_grain_13_dims
+  # ── Nhóm 0: grain 15 chiều + video_id của mart_data_agg ─────────
+  - name: ut_agg_grain_dims_video
     description: >
-      Cùng video qua 2 snapshot với 13 chiều y hệt -> chỉ đếm 1 (count distinct video_id).
+      Cùng video qua 2 snapshot với các chiều y hệt -> gộp còn 1 dòng.
       Khác creator_name -> tách dòng riêng. Khác duration_date -> tách dòng riêng.
-      Dòng duration_date <= 0 bị loại khỏi bảng.
+      Dòng duration_date <= 0 VẪN được giữ (duration_date là chiều, không phải bộ lọc).
     model: mart_data_agg
     given:
       - input: ref('mart_data')
@@ -39,13 +62,52 @@ unit_tests:
           - {video_id: "v2", time: "2025-03-10", brand: "DHC", creator_name: "b", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1"}
           # v4 cùng creator "a" nhưng KHÁC duration_date -> dòng riêng
           - {video_id: "v4", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 3, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1"}
-          # v3 duration_date <= 0 -> bị loại
+          # v3 duration_date <= 0 -> vẫn có mặt, nằm ở nhóm duration_date = -1
           - {video_id: "v3", time: "2025-03-10", brand: "DHC", creator_name: "c", duration_date: -1, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": null, "Phân loại Creator": "Organic", "Group creator": "Organic", "PIC": null, "Team": null, "Vị trí": null, "Mẫu gửi": null}
     expect:
       rows:
-        - {creator_name: "a", duration_date: 3, so_luong_video: 1}
-        - {creator_name: "a", duration_date: 7, so_luong_video: 1}
-        - {creator_name: "b", duration_date: 7, so_luong_video: 1}
+        - {video_id: "v1", creator_name: "a", duration_date: 7}
+        - {video_id: "v2", creator_name: "b", duration_date: 7}
+        - {video_id: "v4", creator_name: "a", duration_date: 3}
+        - {video_id: "v3", creator_name: "c", duration_date: -1}
+
+  # ── Nhóm 0b: metric cộng trên MỌI dòng snapshot ─────────────────
+  - name: ut_agg_metrics_sum_snapshots
+    description: >
+      Cái bẫy chính: metric phải SUM trên dòng gốc, KHÔNG sum trên tập đã khử trùng
+      theo video_id. v1 có 2 snapshot cùng tổ hợp chiều -> gộp còn 1 dòng nhưng
+      6 metric cộng cả 2 dòng. Metric null -> 0 (không trả null).
+    model: mart_data_agg
+    given:
+      - input: ref('mart_data')
+        rows:
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", vv: 100, click_on_the_product: 10, count_order: 2, video_revenue: 500000, product_impressions: 40, unit_sales: 3}
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", vv: 250, click_on_the_product: 5, count_order: 1, video_revenue: 300000, product_impressions: 60, unit_sales: 1}
+          # v2 cùng tổ hợp, metric null -> phải ra 0 chứ không null
+          - {video_id: "v2", time: "2025-03-11", brand: "DHC", creator_name: "b", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", vv: null, click_on_the_product: null, count_order: null, video_revenue: null, product_impressions: null, unit_sales: null}
+    expect:
+      rows:
+        - {video_id: "v1", creator_name: "a", so_view: 350, so_click: 15, so_don: 3, gmv: 800000, product_impressions: 100, unit_sales: 4}
+        - {video_id: "v2", creator_name: "b", so_view: 0, so_click: 0, so_don: 0, gmv: 0, product_impressions: 0, unit_sales: 0}
+
+  # ── Nhóm 0c: thang / tuan từ date_file_excel ───────────────────
+  - name: ut_agg_thang_tuan
+    description: >
+      Cùng 1 video qua 3 snapshot khác kỳ -> tách 3 dòng (cùng video_id), metric
+      tách theo kỳ. Ca giao năm: 2025-12-29 thuộc tuần ISO 01 của 2026
+      -> tuan = '2026-01' trong khi thang = '2025-12' (chốt IYYY, không phải YYYY).
+    model: mart_data_agg
+    given:
+      - input: ref('mart_data')
+        rows:
+          - {video_id: "v1", date_file_excel: "2025-03-10", time: "2025-03-01", brand: "DHC", creator_name: "a", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", vv: 100, click_on_the_product: 1, count_order: 1, video_revenue: 1000, product_impressions: 10, unit_sales: 1}
+          - {video_id: "v1", date_file_excel: "2025-04-15", time: "2025-03-01", brand: "DHC", creator_name: "a", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", vv: 200, click_on_the_product: 2, count_order: 2, video_revenue: 2000, product_impressions: 20, unit_sales: 2}
+          - {video_id: "v1", date_file_excel: "2025-12-29", time: "2025-03-01", brand: "DHC", creator_name: "a", duration_date: 7, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", vv: 300, click_on_the_product: 3, count_order: 3, video_revenue: 3000, product_impressions: 30, unit_sales: 3}
+    expect:
+      rows:
+        - {video_id: "v1", thang: "2025-03", tuan: "2025-11", so_view: 100, so_don: 1, gmv: 1000}
+        - {video_id: "v1", thang: "2025-04", tuan: "2025-16", so_view: 200, so_don: 2, gmv: 2000}
+        - {video_id: "v1", thang: "2025-12", tuan: "2026-01", so_view: 300, so_don: 3, gmv: 3000}
 
   # ── Nhóm 1: sản phẩm & loại video ──────────────────────────────
   - name: ut_mart_prod_and_loaivideo

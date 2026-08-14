@@ -1,0 +1,87 @@
+{
+  "el/check_conn.py": {
+    "mtime": 1784169814.127106,
+    "ast_hash": "e9ad7c7a8efc828f53efb4133cc578ba",
+    "semantic_hash": "e9ad7c7a8efc828f53efb4133cc578ba"
+  },
+  "el/compare.py": {
+    "mtime": 1784175031.4810648,
+    "ast_hash": "5d6763863b6530ef199951798d0a2d70",
+    "semantic_hash": "5d6763863b6530ef199951798d0a2d70"
+  },
+  "el/load_raw.py": {
+    "mtime": 1784196844.9542654,
+    "ast_hash": "b5b6af9a6680211f3e9cd91b4415eeda",
+    "semantic_hash": "b5b6af9a6680211f3e9cd91b4415eeda"
+  },
+  "el/test_load_raw.py": {
+    "mtime": 1784196637.970948,
+    "ast_hash": "68f30f84cd591df91b0693943f388394",
+    "semantic_hash": "68f30f84cd591df91b0693943f388394"
+  },
+  "env.example.ps1": {
+    "mtime": 1784112894.405717,
+    "ast_hash": "ef52f40396e84a8b67c4b7cfe1662b0d",
+    "semantic_hash": "ef52f40396e84a8b67c4b7cfe1662b0d"
+  },
+  "load_connections.ps1": {
+    "mtime": 1784169514.821496,
+    "ast_hash": "8d86ba1b80724a5ee2843fec6e89a581",
+    "semantic_hash": "8d86ba1b80724a5ee2843fec6e89a581"
+  },
+  "macros/generate_schema_name.sql": {
+    "mtime": 1784513580.9823372,
+    "ast_hash": "3455b97cb97bb11f0e0b520de3590fd7",
+    "semantic_hash": "3455b97cb97bb11f0e0b520de3590fd7"
+  },
+  "macros/run_date.sql": {
+    "mtime": 1784112917.0604756,
+    "ast_hash": "197b118b5f8a9b6f8ca0e7c408e9d2f8",
+    "semantic_hash": "197b118b5f8a9b6f8ca0e7c408e9d2f8"
+  },
+  "models/intermediate/int_send_sample.sql": {
+    "mtime": 1784112996.7200568,
+    "ast_hash": "8ef9f213bd36858957111c1dda2ff521",
+    "semantic_hash": "8ef9f213bd36858957111c1dda2ff521"
+  },
+  "models/intermediate/int_valid_classification.sql": {
+    "mtime": 1784113020.2953286,
+    "ast_hash": "94fa3f8d183f30cbb77fe14a9bacd057",
+    "semantic_hash": "94fa3f8d183f30cbb77fe14a9bacd057"
+  },
+  "models/marts/mart_data.sql": {
+    "mtime": 1784113859.6969938,
+    "ast_hash": "037bf8adef716f01d6ce18182a179aa9",
+    "semantic_hash": "037bf8adef716f01d6ce18182a179aa9"
+  },
+  "models/marts/mart_data_agg.sql": {
+    "mtime": 1784192754.1125624,
+    "ast_hash": "2936cf650f4871c3f44b4cc464ff3e11",
+    "semantic_hash": "2936cf650f4871c3f44b4cc464ff3e11"
+  },
+  "models/staging/stg_performance_list.sql": {
+    "mtime": 1784112939.8958154,
+    "ast_hash": "48bfef8abf7d5b2cddacf4d4f857df5f",
+    "semantic_hash": "48bfef8abf7d5b2cddacf4d4f857df5f"
+  },
+  "models/staging/stg_pic_team.sql": {
+    "mtime": 1784112956.0649278,
+    "ast_hash": "214365990da41236365bf87faf05a4b7",
+    "semantic_hash": "214365990da41236365bf87faf05a4b7"
+  },
+  "models/staging/stg_product_name_map.sql": {
+    "mtime": 1784112952.771063,
+    "ast_hash": "c969bd7902f11818ca738dccd76ec822",
+    "semantic_hash": "c969bd7902f11818ca738dccd76ec822"
+  },
+  "models/staging/stg_send_sample.sql": {
+    "mtime": 1784112948.9033396,
+    "ast_hash": "93dab0d3ee1208e8b65094c338b00b9e",
+    "semantic_hash": "93dab0d3ee1208e8b65094c338b00b9e"
+  },
+  "setup_fdw.example.sql": {
+    "mtime": 1783992736.490794,
+    "ast_hash": "ef814a315fab34a6f31c39df6e8bfdd2",
+    "semantic_hash": "ef814a315fab34a6f31c39df6e8bfdd2"
+  }
+}
