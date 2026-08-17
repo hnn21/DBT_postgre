@@ -65,6 +65,7 @@ PG_URL = URL.create(
 RAW = os.getenv("PG_RAW_SCHEMA", "raw")
 BATCH = 50000
 SMALL_TABLES = ("send_sample", "product_name_map", "pic_team")
+ALL_TABLES = SMALL_TABLES + ("performance_list",)
 
 QUERIES = {
     "performance_list": """
@@ -113,6 +114,15 @@ def parse_args(argv=None):
     p.add_argument("--from", dest="from_", metavar="YYYY-MM-DD", help="đầu khoảng date_file_excel")
     p.add_argument("--to", dest="to", metavar="YYYY-MM-DD", help="cuối khoảng date_file_excel")
     p.add_argument("--days", type=int, metavar="N", help="date_file_excel >= today - N")
+    p.add_argument(
+        "--tables", nargs="+", choices=ALL_TABLES, metavar="TABLE",
+        help="Chỉ nạp các bảng chỉ định (mặc định: tất cả). VD: --tables send_sample",
+    )
+    p.add_argument(
+        "--chunk-days", type=int, metavar="N", dest="chunk_days",
+        help="Nạp performance_list theo lô N ngày (an toàn cho full-refresh, "
+             "tránh stream quá dài bị đứt kết nối). VD: --chunk-days 30",
+    )
     return p.parse_args(argv)
 
 
@@ -137,18 +147,26 @@ def _copy_rows(cur, pg, tbl, cols):
 
 def full_load(myconn, pgconn, tbl, query):
     pg = pgconn.cursor()
+    # SSCursor phải được đóng TRƯỚC khi connection đóng, kể cả khi lỗi giữa chừng —
+    # nếu không, lúc GC pymysql sẽ cố đọc nốt query unbuffered trên socket đã đóng
+    # và ném "Exception ignored ... settimeout on None". try/finally đảm bảo điều đó.
     cur = myconn.cursor(pymysql.cursors.SSCursor)
-    cur.execute(query)
-    cols = [d[0] for d in cur.description]
-    pg.execute(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"')
-    # CREATE IF NOT EXISTS + TRUNCATE (không DROP) để không phá các view dbt phụ thuộc.
-    # TRUNCATE có tính giao dịch -> thay dữ liệu nguyên tử khi commit.
-    pg.execute(f'CREATE TABLE IF NOT EXISTS "{RAW}"."{tbl}" (' + ", ".join(f'"{c}" text' for c in cols) + ')')
-    pg.execute(f'TRUNCATE "{RAW}"."{tbl}"')
-    _copy_rows(cur, pg, tbl, cols)
-    pgconn.commit()
-    cur.close()
-    pg.close()
+    try:
+        cur.execute(query)
+        cols = [d[0] for d in cur.description]
+        pg.execute(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"')
+        # CREATE IF NOT EXISTS + TRUNCATE (không DROP) để không phá các view dbt phụ thuộc.
+        # TRUNCATE có tính giao dịch -> thay dữ liệu nguyên tử khi commit.
+        pg.execute(f'CREATE TABLE IF NOT EXISTS "{RAW}"."{tbl}" (' + ", ".join(f'"{c}" text' for c in cols) + ')')
+        pg.execute(f'TRUNCATE "{RAW}"."{tbl}"')
+        _copy_rows(cur, pg, tbl, cols)
+        pgconn.commit()
+    finally:
+        try:
+            cur.close()  # nuốt lỗi close để không che lỗi gốc (vd stream đứt giữa chừng)
+        except Exception:
+            pass
+        pg.close()
 
 
 def range_load(myconn, pgconn, tbl, d_from, d_to):
@@ -166,30 +184,101 @@ def range_load(myconn, pgconn, tbl, d_from, d_to):
         (d_from, d_to),
     )
     print(f"  {tbl}: deleted {pg.rowcount:,} rows in [{d_from}..{d_to}]", flush=True)
+    # try/finally: đóng SSCursor trước connection, tránh noise lúc GC (xem full_load).
     cur = myconn.cursor(pymysql.cursors.SSCursor)
-    q = QUERIES[tbl].rstrip() + "\n        WHERE date_file_excel BETWEEN %s AND %s"
-    cur.execute(q, (d_from, d_to))
-    cols = [d[0] for d in cur.description]
-    _copy_rows(cur, pg, tbl, cols)
-    pgconn.commit()
-    cur.close()
+    try:
+        q = QUERIES[tbl].rstrip() + "\n        WHERE date_file_excel BETWEEN %s AND %s"
+        cur.execute(q, (d_from, d_to))
+        cols = [d[0] for d in cur.description]
+        _copy_rows(cur, pg, tbl, cols)
+        pgconn.commit()
+    finally:
+        try:
+            cur.close()  # nuốt lỗi close để không che lỗi gốc (vd stream đứt giữa chừng)
+        except Exception:
+            pass
     pg.close()
+
+
+def _iter_chunks(d_from, d_to, chunk_days):
+    """Chia [d_from..d_to] thành các lô liên tiếp, mỗi lô tối đa chunk_days ngày."""
+    cur = d_from
+    while cur <= d_to:
+        end = min(cur + datetime.timedelta(days=chunk_days - 1), d_to)
+        yield cur, end
+        cur = end + datetime.timedelta(days=1)
+
+
+def _mysql_date_span(myconn, tbl):
+    """min/max date_file_excel trong MySQL (dùng khi full-refresh cần biết toàn dải)."""
+    c = myconn.cursor()
+    try:
+        c.execute(f"select min(date_file_excel), max(date_file_excel) from {tbl}")
+        return c.fetchone()  # (date, date) hoặc (None, None) nếu rỗng
+    finally:
+        c.close()
+
+
+def _ensure_table(myconn, pgconn, tbl, query):
+    """Tạo bảng raw rỗng nếu chưa có, để range_load (DELETE+insert) chạy được lô đầu."""
+    pg = pgconn.cursor()
+    try:
+        pg.execute(
+            "select 1 from information_schema.tables where table_schema=%s and table_name=%s",
+            (RAW, tbl),
+        )
+        if pg.fetchone() is not None:
+            return
+        my = myconn.cursor()
+        try:
+            my.execute(query.rstrip() + "\n        LIMIT 0")  # chỉ lấy tên cột
+            cols = [d[0] for d in my.description]
+        finally:
+            my.close()
+        pg.execute(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"')
+        pg.execute(f'CREATE TABLE IF NOT EXISTS "{RAW}"."{tbl}" (' + ", ".join(f'"{c}" text' for c in cols) + ')')
+        pgconn.commit()
+    finally:
+        pg.close()
+
+
+def chunked_load(myconn, pgconn, tbl, mode, d_from, d_to, chunk_days):
+    """Full-refresh AN TOÀN: nạp theo lô nhỏ, mỗi lô là 1 range_load (transactional, resumable)."""
+    _ensure_table(myconn, pgconn, tbl, QUERIES[tbl])
+    if mode == "full":  # full = toàn dải trong MySQL
+        d_from, d_to = _mysql_date_span(myconn, tbl)
+        if d_from is None:
+            print(f"  {tbl}: nguồn MySQL rỗng, bỏ qua", flush=True)
+            return
+    chunks = list(_iter_chunks(d_from, d_to, chunk_days))
+    print(f"  {tbl}: full-safe {len(chunks)} lô x {chunk_days} ngày [{d_from}..{d_to}]", flush=True)
+    for i, (cf, ct) in enumerate(chunks, 1):
+        print(f"  [lô {i}/{len(chunks)}] {cf}..{ct}", flush=True)
+        range_load(myconn, pgconn, tbl, cf, ct)
 
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.chunk_days is not None and args.chunk_days <= 0:
+        raise SystemExit("--chunk-days phải > 0")
     mode, d_from, d_to = resolve_mode(args.from_, args.to, args.days, datetime.date.today())
-    print(f"Mode: {mode}" + ("" if mode == "full" else f" [{d_from}..{d_to}]"), flush=True)
+    targets = args.tables if args.tables else list(ALL_TABLES)  # không chọn -> tất cả
+    print(f"Mode: {mode}" + ("" if mode == "full" else f" [{d_from}..{d_to}]")
+          + f" | tables: {', '.join(targets)}", flush=True)
 
     myconn = pymysql.connect(**MY)
     pgconn = psycopg2.connect(**PG)
     try:
-        for tbl in SMALL_TABLES:  # luôn full
-            full_load(myconn, pgconn, tbl, QUERIES[tbl])
-        if mode == "full":
-            full_load(myconn, pgconn, "performance_list", QUERIES["performance_list"])
-        else:
-            range_load(myconn, pgconn, "performance_list", d_from, d_to)
+        for tbl in SMALL_TABLES:  # bảng nhỏ luôn full
+            if tbl in targets:
+                full_load(myconn, pgconn, tbl, QUERIES[tbl])
+        if "performance_list" in targets:
+            if args.chunk_days:
+                chunked_load(myconn, pgconn, "performance_list", mode, d_from, d_to, args.chunk_days)
+            elif mode == "full":
+                full_load(myconn, pgconn, "performance_list", QUERIES["performance_list"])
+            else:
+                range_load(myconn, pgconn, "performance_list", d_from, d_to)
     finally:
         myconn.close()
         pgconn.close()
