@@ -7,7 +7,9 @@ derived as (
     select
         ss.*,
         -- prod_contain: luật SWITCH của Table_send_sample (thứ tự quan trọng)
+        -- Giữ ĐỒNG BỘ 100% với SWITCH prod_contain trong mart_data.sql (join theo prod_contain).
         case
+            when ss.ten_san_pham ilike '%b mix%' or ss.ten_san_pham ilike '%bmix%' or ss.ten_san_pham ilike '%b-mix%' then 'b mix'
             when ss.ten_san_pham ilike '%son dưỡng%' then 'son dưỡng'
             when ss.ten_san_pham ilike '%biotin%' then 'biotin'
             when ss.ten_san_pham ilike '%kẽm%' then 'kẽm'
@@ -17,15 +19,15 @@ derived as (
             when ss.ten_san_pham ilike '%dầu tẩy trang%' then 'dầu tẩy trang'
             when ss.ten_san_pham ilike '%kem chống nắng%' and ss.ten_san_pham ilike '%togishi%' then 'Kem chống nắng'
             when ss.ten_san_pham ilike '%vệ sinh nam%' then 'VSnam'
-            when ss.ten_san_pham ilike '%COLD CREAM%' and ss.ten_san_pham ilike '%mini%' then 'Cold cream'
-            when ss.ten_san_pham ilike '%COLD CREAM%' then 'Cold cream'
+            when ss.ten_san_pham ilike '%wash gel%' and ss.ten_san_pham ilike '%togishi%' then 'VSnam'
+            when ss.ten_san_pham ilike '%COLD CREAM%' or ss.ten_san_pham ilike '%kem lạnh%' then 'Cold cream'
             when ss.ten_san_pham ilike '%FOAMING FACE WASH%' then 'FOAMING FACE WASH'
             when ss.ten_san_pham ilike '%WHITENING MOISTURE GEL%' then 'WHITENING MOISTURE GEL'
             when ss.ten_san_pham ilike '%adlay%' then 'ADLAY'
-            when ss.ten_san_pham ilike '%b mix%' or ss.ten_san_pham ilike '%bmix%' or ss.ten_san_pham ilike '%b-mix%' then 'b mix'
-            when ss.ten_san_pham ilike '%kem ủ%' then 'Adolph kem ủ'
+            when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%kem ủ%' then 'Adolph kem ủ'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%hộp%' then 'Adolph hộp quà'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%gội%' then 'Adolph gội'
+            when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%shampoo%' then 'Adolph gội'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%xả%' then 'Adolph xả'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%tinh dầu%' then 'Adolph tinh dầu'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%sữa tắm%' then 'Adolph sữa tắm'
