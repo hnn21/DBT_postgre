@@ -59,7 +59,7 @@ prod as (
             when b.product_name ilike '%FOAMING FACE WASH%' then 'FOAMING FACE WASH'
             when b.product_name ilike '%WHITENING MOISTURE GEL%' then 'WHITENING MOISTURE GEL'
             when b.product_name ilike '%adlay%' then 'ADLAY'
-            when b.product_name ilike '%adolph%' and b.product_name ilike '%kem ủ%' then 'Adolph kem ủ'
+            when b.product_name ilike '%kem ủ%' then 'Adolph kem ủ'
             when b.product_name ilike '%adolph%' and b.product_name ilike '%hộp%' then 'Adolph hộp quà'
             when b.product_name ilike '%adolph%' and b.product_name ilike '%gội%' then 'Adolph gội'
             when b.product_name ilike '%adolph%' and b.product_name ilike '%shampoo%' then 'Adolph gội'
