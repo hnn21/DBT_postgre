@@ -1,7 +1,7 @@
 -- Tổng hợp metric hiệu suất theo tổ hợp chiều thời gian snapshot / gửi mẫu /
 -- creator / sản phẩm, giữ nguyên video_id trong grain.
 --
--- GRAIN: 15 chiều + video_id  (1 dòng = 1 video trong 1 tổ hợp chiều).
+-- GRAIN: 16 chiều + video_id  (1 dòng = 1 video trong 1 tổ hợp chiều).
 -- => Số video phải đếm bằng count(distinct video_id) (PBI: DISTINCTCOUNT(video_id)),
 --    KHÔNG cộng số dòng. Nhờ giữ video_id, số video ĐÚNG ở MỌI mức roll-up
 --    (tuần, tháng, quý, toàn kỳ). Trước đây bảng đã gộp mất video_id nên một video
@@ -29,6 +29,7 @@ select
     brand,
     creator_name,
     duration_date,
+    range_date,
     prod_contain,
     prod_contain_combo,
     "Phân loại Creator",
@@ -54,6 +55,7 @@ group by
     brand,
     creator_name,
     duration_date,
+    range_date,
     prod_contain,
     prod_contain_combo,
     "Phân loại Creator",

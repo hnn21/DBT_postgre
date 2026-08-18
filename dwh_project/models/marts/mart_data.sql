@@ -220,23 +220,30 @@ j as (
       on e.creator_name = pk.creator_name and e.prod_contain = pk.prod_contain and e.time = pk.time
 ),
 
--- (4) duration_date (dùng run_date thay TODAY())
+-- (4) duration_date: DẤU thỏa/không, TĨNH (không phụ thuộc run_date -> không "trôi").
+--       1  = có mẫu và time >= Ngày gửi mẫu (video lên sau khi gửi mẫu = thỏa)
+--      -1  = không có mẫu, hoặc time < Ngày gửi mẫu (không thỏa)
+--     range_date: chỉ cho dòng thỏa (duration_date > 0), bucket theo
+--       (date_file_excel - Ngày gửi mẫu) = số ngày từ lúc gửi mẫu tới ngày snapshot.
+--       Cũng TĨNH -> cả bảng không còn cột nào trôi theo run_date.
 duration as (
     select
         j.*,
         case
             when j."Ngày gửi mẫu" is null then -1
-            when j."Ngày gửi mẫu" > j.time then -1
-            else case
-                when ({{ run_date() }} - j.time) <= 30 then 7
-                when ({{ run_date() }} - j.time) <= 60 then 6
-                when (j.time - j."Ngày gửi mẫu") <= 7 then 1
-                when (j.time - j."Ngày gửi mẫu") <= 14 then 2
-                when (j.time - j."Ngày gửi mẫu") <= 30 then 3
-                when (j.time - j."Ngày gửi mẫu") <= 90 then 4
-                else 5
-            end
-        end as duration_date
+            when j.time >= j."Ngày gửi mẫu" then 1
+            else -1
+        end as duration_date,
+        case
+            when j."Ngày gửi mẫu" is null or j.time < j."Ngày gửi mẫu" then null
+            when (j.date_file_excel - j."Ngày gửi mẫu") <= 7   then 7
+            when (j.date_file_excel - j."Ngày gửi mẫu") <= 14  then 14
+            when (j.date_file_excel - j."Ngày gửi mẫu") <= 30  then 30
+            when (j.date_file_excel - j."Ngày gửi mẫu") <= 60  then 60
+            when (j.date_file_excel - j."Ngày gửi mẫu") <= 90  then 90
+            when (j.date_file_excel - j."Ngày gửi mẫu") <= 180 then 180
+            else 999                                   -- > 180 ngày (6 tháng+)
+        end as range_date
     from j
 ),
 
@@ -286,12 +293,13 @@ final as (
         g.product_impressions, g.click_on_the_product, g.customer, g.count_order,
         g.unit_sales, g.video_revenue, g.gpm, g.gmv, g.ctr,
         g.view_to_like_ratio, g.video_viewing_rate, g.co_ratio, g.date_file_excel, g.brand,
-        -- 14 cột tính toán
+        -- 15 cột tính toán
         g.prod_contain,
         g.prod_contain_combo,
         g."Loại video",
         g."Ngày gửi mẫu",
         g.duration_date,
+        g.range_date,
         g."video_duoctinhPFM",
         g."DK Creator được gửi mẫu",
         g."DK Time air video",
