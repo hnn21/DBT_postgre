@@ -16,8 +16,8 @@ models:
           (video lên sau khi gửi mẫu); -1 = không có mẫu hoặc time < Ngày gửi mẫu.
       - name: range_date
         description: >
-          Chỉ tính cho dòng thỏa (duration_date > 0). Số ngày từ gửi mẫu tới ngày snapshot
-          (date_file_excel - Ngày gửi mẫu), bucket: 7/14/30/60/90/180; 999 = >180 ngày; NULL nếu không thỏa.
+          Tính cho MỌI dòng: tuổi video tại thời điểm snapshot = số ngày (date_file_excel - time),
+          bucket 7/14/30/60/90/180; 999 = >180 ngày; NULL nếu time NULL.
 
   - name: mart_data_agg
     description: >
@@ -153,9 +153,12 @@ unit_tests:
       - input: ref('stg_performance_list')
         rows:
           - {video_id: "v1", time: "2025-03-10", date_file_excel: "2025-03-12", product_name: "x", creator_name: "a"}
+          # v2: KHÔNG thỏa (creator "z" không có mẫu) nhưng range_date VẪN được tính
+          - {video_id: "v2", time: "2025-03-01", date_file_excel: "2025-03-20", product_name: "y", creator_name: "z"}
       - input: ref('stg_product_name_map')
         rows:
           - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
+          - {video_id: "v2", product_contain: "kẽm", product_contain_combo: null}
       - input: ref('int_send_sample')
         rows:
           - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "An", team: "T1", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "S"}
@@ -166,9 +169,12 @@ unit_tests:
         rows: []
     expect:
       rows:
-        # time (2025-03-10) >= Ngày gửi mẫu (2025-03-05) -> duration_date = 1 (thỏa).
-        # date_file_excel (2025-03-12) - Ngày gửi mẫu (2025-03-05) = 7 ngày -> range_date = 7.
+        # v1: time (2025-03-10) >= Ngày gửi mẫu (2025-03-05) -> duration_date = 1 (thỏa).
+        #     range_date = date_file_excel (2025-03-12) - time (2025-03-10) = 2 ngày -> 7.
         - {video_id: "v1", "Ngày gửi mẫu": "2025-03-05", duration_date: 1, range_date: 7, "video_duoctinhPFM": 1, "DK Creator được gửi mẫu": "Có gửi mẫu", "DK Time air video": "Thỏa mãn ĐK thời gian là sau khi gửi mẫu"}
+        # v2: không mẫu -> duration_date = -1, NHƯNG range_date vẫn tính:
+        #     date_file_excel (2025-03-20) - time (2025-03-01) = 19 ngày -> 30.
+        - {video_id: "v2", "Ngày gửi mẫu": null, duration_date: -1, range_date: 30, "video_duoctinhPFM": 0, "DK Creator được gửi mẫu": "Ko gửi mẫu", "DK Time air video": "Không tính"}
 
   # ── Nhóm 3: phân loại creator ──────────────────────────────────
   - name: ut_mart_phanloai

@@ -223,9 +223,9 @@ j as (
 -- (4) duration_date: DẤU thỏa/không, TĨNH (không phụ thuộc run_date -> không "trôi").
 --       1  = có mẫu và time >= Ngày gửi mẫu (video lên sau khi gửi mẫu = thỏa)
 --      -1  = không có mẫu, hoặc time < Ngày gửi mẫu (không thỏa)
---     range_date: chỉ cho dòng thỏa (duration_date > 0), bucket theo
---       (date_file_excel - Ngày gửi mẫu) = số ngày từ lúc gửi mẫu tới ngày snapshot.
---       Cũng TĨNH -> cả bảng không còn cột nào trôi theo run_date.
+--     range_date: cho MỌI dòng (không phụ thuộc duration_date), bucket theo
+--       (date_file_excel - time) = tuổi video tại thời điểm snapshot (số ngày từ
+--       khi video lên sóng tới ngày file). Cũng TĨNH -> không có cột nào trôi theo run_date.
 duration as (
     select
         j.*,
@@ -235,13 +235,13 @@ duration as (
             else -1
         end as duration_date,
         case
-            when j."Ngày gửi mẫu" is null or j.time < j."Ngày gửi mẫu" then null
-            when (j.date_file_excel - j."Ngày gửi mẫu") <= 7   then 7
-            when (j.date_file_excel - j."Ngày gửi mẫu") <= 14  then 14
-            when (j.date_file_excel - j."Ngày gửi mẫu") <= 30  then 30
-            when (j.date_file_excel - j."Ngày gửi mẫu") <= 60  then 60
-            when (j.date_file_excel - j."Ngày gửi mẫu") <= 90  then 90
-            when (j.date_file_excel - j."Ngày gửi mẫu") <= 180 then 180
+            when j.time is null then null
+            when (j.date_file_excel::date - j.time::date) <= 7   then 7
+            when (j.date_file_excel::date - j.time::date) <= 14  then 14
+            when (j.date_file_excel::date - j.time::date) <= 30  then 30
+            when (j.date_file_excel::date - j.time::date) <= 60  then 60
+            when (j.date_file_excel::date - j.time::date) <= 90  then 90
+            when (j.date_file_excel::date - j.time::date) <= 180 then 180
             else 999                                   -- > 180 ngày (6 tháng+)
         end as range_date
     from j
