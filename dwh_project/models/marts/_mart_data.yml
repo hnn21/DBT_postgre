@@ -60,6 +60,9 @@ unit_tests:
       Khác creator_name -> tách dòng riêng. Khác duration_date -> tách dòng riêng.
       Dòng duration_date <= 0 VẪN được giữ (duration_date là chiều, không phải bộ lọc).
     model: mart_data_agg
+    overrides:
+      macros:
+        is_incremental: false
     given:
       - input: ref('mart_data')
         rows:
@@ -86,6 +89,9 @@ unit_tests:
       theo video_id. v1 có 2 snapshot cùng tổ hợp chiều -> gộp còn 1 dòng nhưng
       6 metric cộng cả 2 dòng. Metric null -> 0 (không trả null).
     model: mart_data_agg
+    overrides:
+      macros:
+        is_incremental: false
     given:
       - input: ref('mart_data')
         rows:
@@ -105,6 +111,9 @@ unit_tests:
       tách theo kỳ. Ca giao năm: 2025-12-29 thuộc tuần ISO 01 của 2026
       -> tuan = '2026-01' trong khi thang = '2025-12' (chốt IYYY, không phải YYYY).
     model: mart_data_agg
+    overrides:
+      macros:
+        is_incremental: false
     given:
       - input: ref('mart_data')
         rows:

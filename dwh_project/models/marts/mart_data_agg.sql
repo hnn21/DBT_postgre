@@ -15,9 +15,16 @@
 --
 -- LƯU Ý metric: vv, count_order, ... là số PHÁT SINH theo từng snapshot, KHÔNG lũy kế
 -- (đã kiểm chứng ở spec mart_new_video) nên sum qua các snapshot mới là tổng đúng.
--- Một HashAggregate duy nhất, không sort, không join — 1 lần quét mart_data.
+--
+-- INCREMENTAL (delete+insert theo `thang`). An toàn vì mart_data bất biến sau khi tạo
+-- (duration_date/range_date tĩnh + performance_list append-only) -> tháng cũ không đổi.
+--   • Full:         dbt build -s mart_data_agg --full-refresh   (dựng lại toàn bộ)
+--   • Truyền tháng: --vars '{agg_months: ["2026-07","2026-08"]}' (chỉ các tháng này)
+--   • Không truyền: mặc định tháng hiện tại + tháng trước.
 {{ config(
-    materialized='table',
+    materialized='incremental',
+    incremental_strategy='delete+insert',
+    unique_key='thang',
     pre_hook=["set work_mem = '256MB'", "set jit = off"]
 ) }}
 
@@ -47,6 +54,19 @@ select
     coalesce(sum(unit_sales), 0)::bigint           as unit_sales
 from {{ ref('mart_data') }}
 where video_id is not null
+{% if is_incremental() %}
+    {% set agg_months = var('agg_months', none) %}
+    {% if agg_months is string %}{% set agg_months = [agg_months] %}{% endif %}
+    {% if agg_months is not none %}
+    -- Mode "truyền tháng": chỉ tính lại các tháng chỉ định
+    and to_char(date_file_excel, 'YYYY-MM') in (
+        {%- for m in agg_months -%}'{{ m }}'{{ ', ' if not loop.last }}{%- endfor -%}
+    )
+    {% else %}
+    -- Mặc định: tháng hiện tại + tháng trước (phủ cửa sổ 14 ngày của mart_data)
+    and date_file_excel >= date_trunc('month', current_date) - interval '1 month'
+    {% endif %}
+{% endif %}
 group by
     to_char(date_file_excel, 'YYYY-MM'),
     to_char(date_file_excel, 'IYYY-IW'),
