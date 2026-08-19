@@ -75,3 +75,63 @@ dbt build -s mart_data+ --full-refresh
 - `dbt build` = chạy model + unit test `ut_mart_*`. Chỉ muốn dựng bảng (bỏ test) thì dùng `dbt run` thay `dbt build`.
 - Chạy cả pipeline (staging → intermediate → marts): bỏ `-s ...`, chỉ `dbt build` (hoặc kèm `--full-refresh`).
 - Nút thắt tốc độ còn lại là disk I/O + `shared_buffers` của server đích (bảng ~2GB), không sửa được bằng SQL — xem lịch sử tối ưu trong git.
+
+---
+
+## BẢNG TRA LỆNH NHANH
+
+Chạy sau khi đã chuẩn bị (mục 0): `.\venv\Scripts\Activate.ps1` → `cd dwh_project` → `. .\load_connections.ps1`.
+
+### A. `load_raw.py` (EL: MySQL → raw)
+```powershell
+# Daily (khuyến nghị): performance_list 14 ngày + send_sample full
+python el\load_raw.py --tables performance_list send_sample --days 14
+
+# Nạp TẤT CẢ 4 bảng, full (mặc định không cờ)
+python el\load_raw.py
+
+# Chỉ 1 / vài bảng (bảng nhỏ luôn full)
+python el\load_raw.py --tables send_sample
+python el\load_raw.py --tables send_sample product_name_map
+
+# performance_list theo khoảng ngày cụ thể
+python el\load_raw.py --tables performance_list --from 2026-01-01 --to 2026-03-31
+
+# Full-refresh performance_list AN TOÀN theo lô (tránh stream dài đứt kết nối)
+python el\load_raw.py --tables performance_list --chunk-days 30
+```
+> Cờ: `--tables {performance_list|send_sample|product_name_map|pic_team}` (chọn nhiều, mặc định tất cả);
+> `--days N` hoặc `--from/--to` (chỉ áp performance_list); `--chunk-days N` (chia lô, dùng khi full-refresh cả lịch sử).
+
+### B. `mart_data_agg` (incremental theo `thang`)
+```powershell
+# Mặc định — daily (tháng hiện tại + tháng trước)
+dbt build -s mart_data_agg
+
+# Truyền tháng (backfill đúng (các) tháng, không đụng tháng khác)
+dbt build -s mart_data_agg --vars '{agg_months: ["2026-06","2026-07"]}'
+
+# Full (dựng lại toàn bộ)
+dbt build -s mart_data_agg --full-refresh
+```
+
+### C. `mart_new_video` (table — luôn dựng full, chưa incremental)
+```powershell
+dbt build -s mart_new_video
+```
+
+### D. Cả cụm marts (mart_data + 2 bảng hạ nguồn)
+```powershell
+# Daily: mart_data incremental 14 ngày → agg mặc định → new_video full
+dbt build -s mart_data+ --vars '{incr_days: 14}'
+
+# Full-refresh toàn bộ (định kỳ hằng tuần, bắt sửa hồi tố send_sample)
+dbt build -s mart_data+ --full-refresh
+```
+
+### E. Trình tự CHUẨN mỗi ngày
+```powershell
+python el\load_raw.py --tables performance_list send_sample --days 14
+dbt build -s mart_data+ --vars '{incr_days: 14}'
+```
+> `mart_data_agg` / `mart_new_video` đọc từ `mart_data` → nếu chỉ chạy riêng chúng, phải chạy `mart_data` (hoặc `mart_data+`) TRƯỚC.
