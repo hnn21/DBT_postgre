@@ -28,8 +28,8 @@ unit_tests:
     given:
       - input: ref('mart_data')
         rows:
-          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "mau1", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, video_revenue: 1000, duration_date: 7}
-          - {video_id: "v1", time: "2025-03-15", creator_name: "a", "Mẫu gửi": "mau2", brand: "DHC", "PIC": "P2", "Team": "T2", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "mid", vv: 200, count_order: 2, video_revenue: 2000, duration_date: 7}
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "mau1", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, video_revenue: 1000, nguon_yeu_cau: "web", duration_date: 7}
+          - {video_id: "v1", time: "2025-03-15", creator_name: "a", "Mẫu gửi": "mau2", brand: "DHC", "PIC": "P2", "Team": "T2", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "mid", vv: 200, count_order: 2, video_revenue: 2000, nguon_yeu_cau: "web", duration_date: 7}
     expect:
       rows:
         - {video_id: "v1", time: "2025-03-10", "Mẫu gửi": "mau1", "PIC": "P1", "Team": "T1", "Vị trí": "top", so_don: 3, "View": 300, gmv: 3000}
@@ -41,8 +41,8 @@ unit_tests:
     given:
       - input: ref('mart_data')
         rows:
-          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "Anh", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 10, count_order: 1, video_revenue: 100, duration_date: 7}
-          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "Binh", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 20, count_order: 2, video_revenue: 200, duration_date: 7}
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "Anh", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 10, count_order: 1, video_revenue: 100, nguon_yeu_cau: "web", duration_date: 7}
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "Binh", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 20, count_order: 2, video_revenue: 200, nguon_yeu_cau: "web", duration_date: 7}
     expect:
       rows:
         - {video_id: "v1", time: "2025-03-10", "PIC": "Binh", so_don: 3, "View": 30, gmv: 300}
@@ -54,8 +54,8 @@ unit_tests:
     given:
       - input: ref('mart_data')
         rows:
-          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, video_revenue: 1000, duration_date: 7}
-          - {video_id: "v1", time: "2025-03-05", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P9", "Team": "T9", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "bot", vv: 50, count_order: 5, video_revenue: 500, duration_date: -1}
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, video_revenue: 1000, nguon_yeu_cau: "web", duration_date: 7}
+          - {video_id: "v1", time: "2025-03-05", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P9", "Team": "T9", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "bot", vv: 50, count_order: 5, video_revenue: 500, nguon_yeu_cau: "web", duration_date: -1}
     expect:
       rows:
         - {video_id: "v1", time: "2025-03-10", "PIC": "P1", "Vị trí": "top", so_don: 6, "View": 150, gmv: 1500}
@@ -67,8 +67,8 @@ unit_tests:
     given:
       - input: ref('mart_data')
         rows:
-          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, video_revenue: 700, duration_date: 7}
-          - {video_id: "v2", time: "2025-03-11", creator_name: "b", "Mẫu gửi": "m", brand: "DHC", "PIC": "P2", "Team": "T2", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 999, count_order: 9, video_revenue: 999, duration_date: -1}
+          - {video_id: "v1", time: "2025-03-10", creator_name: "a", "Mẫu gửi": "m", brand: "DHC", "PIC": "P1", "Team": "T1", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 100, count_order: 1, video_revenue: 700, nguon_yeu_cau: "web", duration_date: 7}
+          - {video_id: "v2", time: "2025-03-11", creator_name: "b", "Mẫu gửi": "m", brand: "DHC", "PIC": "P2", "Team": "T2", prod_contain: "kẽm", prod_contain_combo: "kẽm", "Vị trí": "top", vv: 999, count_order: 9, video_revenue: 999, nguon_yeu_cau: "web", duration_date: -1}
     expect:
       rows:
         - {video_id: "v1", time: "2025-03-10", so_don: 1, "View": 100, gmv: 700}

@@ -25,6 +25,7 @@ derived as (
             when ss.ten_san_pham ilike '%WHITENING MOISTURE GEL%' then 'WHITENING MOISTURE GEL'
             when ss.ten_san_pham ilike '%adlay%' then 'ADLAY'
             when ss.ten_san_pham ilike '%kem ủ%' then 'Adolph kem ủ'
+            when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%hair mask%' then 'Adolph kem ủ'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%hộp%' then 'Adolph hộp quà'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%gội%' then 'Adolph gội'
             when ss.ten_san_pham ilike '%adolph%' and ss.ten_san_pham ilike '%shampoo%' then 'Adolph gội'

@@ -60,6 +60,7 @@ prod as (
             when b.product_name ilike '%WHITENING MOISTURE GEL%' then 'WHITENING MOISTURE GEL'
             when b.product_name ilike '%adlay%' then 'ADLAY'
             when b.product_name ilike '%kem ủ%' then 'Adolph kem ủ'
+            when b.product_name ilike '%adolph%' and b.product_name ilike '%hair mask%' then 'Adolph kem ủ'
             when b.product_name ilike '%adolph%' and b.product_name ilike '%hộp%' then 'Adolph hộp quà'
             when b.product_name ilike '%adolph%' and b.product_name ilike '%gội%' then 'Adolph gội'
             when b.product_name ilike '%adolph%' and b.product_name ilike '%shampoo%' then 'Adolph gội'
@@ -153,20 +154,22 @@ pic_pick as (
     group by creator_name, prod_contain, time
 ),
 
--- (13)(14) Vị trí, Mẫu gửi theo (creator, prod, time): KHÔNG lọc SL
+-- (13)(14)(15) Vị trí, Mẫu gửi, nguon_yeu_cau theo (creator, prod, time): LỌC SL>0
 vm_ranked as (
-    select k.creator_name, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.ngay_duyet_mau
+    select k.creator_name, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.nguon_yeu_cau, s.ngay_duyet_mau
     from keys_cpt k
     join send s
       on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
      and s.prod_contain = k.prod_contain
+     and s.sl > 0
      and s.ngay_duyet_mau <= k.time
      and k.time <= s.ngay_ket_thuc
 ),
 vm_pick as (
     select creator_name, prod_contain, time,
            max(vi_tri)         filter (where ngay_duyet_mau = mn) as "Vị trí",
-           max(product_detail) filter (where ngay_duyet_mau = mn) as "Mẫu gửi"
+           max(product_detail) filter (where ngay_duyet_mau = mn) as "Mẫu gửi",
+           max(nguon_yeu_cau)  filter (where ngay_duyet_mau = mn) as nguon_yeu_cau
     from (
         select r.*, min(ngay_duyet_mau) over (partition by creator_name, prod_contain, time) as mn
         from vm_ranked r
@@ -194,7 +197,8 @@ picks as materialized (
         plv.group_value as _group_value,
         pp."PIC"        as _pic,
         vm."Vị trí"     as _vi_tri,
-        vm."Mẫu gửi"    as _mau_gui
+        vm."Mẫu gửi"    as _mau_gui,
+        vm.nguon_yeu_cau as _nguon_yeu_cau
     from keys_cpt k
     left join pl_pick_v plv
       on k.creator_name = plv.creator_name and k.prod_contain = plv.prod_contain and k.time = plv.time
@@ -212,7 +216,8 @@ j as (
         pk._group_value                 as _group_value,
         pk._pic                         as _pic,
         pk._vi_tri                      as _vi_tri,
-        pk._mau_gui                     as _mau_gui
+        pk._mau_gui                     as _mau_gui,
+        pk._nguon_yeu_cau               as _nguon_yeu_cau
     from enriched e
     left join gui_mau_map gm
       on lower(e.creator_name) = gm.creator_key and e.prod_contain = gm.prod_contain
@@ -293,7 +298,7 @@ final as (
         g.product_impressions, g.click_on_the_product, g.customer, g.count_order,
         g.unit_sales, g.video_revenue, g.gpm, g.gmv, g.ctr,
         g.view_to_like_ratio, g.video_viewing_rate, g.co_ratio, g.date_file_excel, g.brand,
-        -- 15 cột tính toán
+        -- 16 cột tính toán
         g.prod_contain,
         g.prod_contain_combo,
         g."Loại video",
@@ -308,7 +313,8 @@ final as (
         g._pic     as "PIC",
         tm.team    as "Team",
         g._vi_tri  as "Vị trí",
-        g._mau_gui as "Mẫu gửi"
+        g._mau_gui as "Mẫu gửi",
+        g._nguon_yeu_cau as nguon_yeu_cau
     from grp g
     left join team_map tm on g._pic = tm.pic_rename
 )
