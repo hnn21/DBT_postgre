@@ -133,5 +133,6 @@ dbt build -s mart_data+ --full-refresh
 ```powershell
 python el\load_raw.py --tables performance_list send_sample --days 14
 dbt build -s mart_data+ --vars '{incr_days: 14}'
+dbt build -s mart_data+ --vars '{incr_days: 7, agg_months: ["2026-08"]}'
 ```
 > `mart_data_agg` / `mart_new_video` đọc từ `mart_data` → nếu chỉ chạy riêng chúng, phải chạy `mart_data` (hoặc `mart_data+`) TRƯỚC.
