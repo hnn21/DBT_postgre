@@ -13,7 +13,8 @@ select
     ma_don_hang,
     vi_tri,
     nullif(cost,'')::numeric::int                                           as cost,
-    sdt
+    sdt,
+    campaign_id
 from src
 where koc_kol is not null and trim(koc_kol) <> ''
   and pic is not null and trim(pic) <> ''

@@ -79,7 +79,7 @@ QUERIES = {
                `Phân loại Creator` AS phan_loai_creator, `Nguồn yêu cầu` AS nguon_yeu_cau,
                `Tên sản phẩm` AS ten_san_pham, `SL` AS sl, `sheet`, `Số video` AS so_video,
                `MST/CCCD` AS mst_cccd, `Mã đơn hàng` AS ma_don_hang, `Vị trí` AS vi_tri,
-               `cost`, `SDT` AS sdt
+               `cost`, `SDT` AS sdt, `campaign_id`
         FROM MVA_KOC_KOL_send_sample""",
     "product_name_map": """
         SELECT video_id, product_contain, product_contain_combo
@@ -158,6 +158,20 @@ def full_load(myconn, pgconn, tbl, query):
         # CREATE IF NOT EXISTS + TRUNCATE (không DROP) để không phá các view dbt phụ thuộc.
         # TRUNCATE có tính giao dịch -> thay dữ liệu nguyên tử khi commit.
         pg.execute(f'CREATE TABLE IF NOT EXISTS "{RAW}"."{tbl}" (' + ", ".join(f'"{c}" text' for c in cols) + ')')
+        # Bảng có thể đã tồn tại từ trước với ÍT cột hơn (nguồn MySQL vừa thêm cột mới).
+        # CREATE IF NOT EXISTS KHÔNG thêm cột -> COPY sẽ lỗi
+        # 'column "..." of relation "..." does not exist'. Nên đồng bộ trước:
+        # thêm mọi cột còn thiếu. CHỈ THÊM — không xoá, không đổi kiểu.
+        pg.execute(
+            "select column_name from information_schema.columns "
+            "where table_schema = %s and table_name = %s",
+            (RAW, tbl),
+        )
+        have = {r[0] for r in pg.fetchall()}
+        for c in cols:
+            if c not in have:
+                pg.execute(f'ALTER TABLE "{RAW}"."{tbl}" ADD COLUMN "{c}" text')
+                print(f"  {tbl}: + thêm cột mới '{c}'", flush=True)
         pg.execute(f'TRUNCATE "{RAW}"."{tbl}"')
         _copy_rows(cur, pg, tbl, cols)
         pgconn.commit()
