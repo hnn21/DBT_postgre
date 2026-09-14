@@ -13,6 +13,22 @@ Các lệnh chạy cho 2 trường hợp: **incremental** (thường ngày) và 
   Tái tạo calculated table `table_new_video` của Power BI (đã dedupe, không cộng đôi số đơn/view).
   Còn là table (chưa incremental) vì `so_don`/`View`/`gmv` là tổng theo video trên toàn lịch sử.
 
+### Cột `campaign_id` (có ở cả 3 bảng, kiểu `text`)
+
+Nguồn: cột `campaign_id` của `MVA_KOC_KOL_send_sample` (MySQL) → `raw.send_sample` → `stg`/`int_send_sample`.
+Được **tính** ở `mart_data` trong cụm `vm_pick`: mỗi dòng video lấy `campaign_id` từ bản ghi gửi mẫu
+khớp với nó — cùng creator (không phân biệt hoa/thường), cùng `prod_contain`, `SL > 0`, và **video phải
+lên sóng trong khoảng hiệu lực** `[ngay_duyet_mau … ngay_ket_thuc]`. Không khớp → `NULL`.
+`mart_data_agg` (1 chiều trong `group by`) và `mart_new_video` chỉ lấy thẳng cột này xuống, KHÔNG tính lại.
+
+> ⚠️ **`dbt build` KHÔNG tự nạp MySQL → raw.** Campaign mới chỉ xuất hiện sau khi chạy
+> `python el\load_raw.py` (có nạp `send_sample`) TRƯỚC. Bỏ qua bước này thì `campaign_id` giữ
+> nguyên dữ liệu cũ mà **không báo lỗi gì**.
+
+> ⚠️ **Gán campaign hồi tố:** nếu ai đó điền `campaign_id` cho một lần gửi mẫu CŨ, các dòng
+> `mart_data` ngoài cửa sổ `incr_days` sẽ không được cập nhật. Khi đó phải chạy full-refresh
+> (mục 2) hoặc tạm nâng `incr_days` đủ rộng để phủ tới ngày gửi mẫu đó.
+
 ## 0. Chuẩn bị (1 lần cho mỗi cửa sổ PowerShell)
 ```powershell
 # từ D:\PTDL\DBT_postgre
@@ -84,8 +100,8 @@ Chạy sau khi đã chuẩn bị (mục 0): `.\venv\Scripts\Activate.ps1` → `c
 
 ### A. `load_raw.py` (EL: MySQL → raw)
 ```powershell
-# Daily (khuyến nghị): performance_list 14 ngày + send_sample full
-python el\load_raw.py --tables performance_list send_sample --days 14
+# Daily (khuyến nghị): performance_list 14 ngày + 3 bảng nhỏ full
+python el\load_raw.py --tables performance_list send_sample product_name_map pic_team --days 14
 
 # Nạp TẤT CẢ 4 bảng, full (mặc định không cờ)
 python el\load_raw.py
@@ -131,8 +147,17 @@ dbt build -s mart_data+ --full-refresh
 
 ### E. Trình tự CHUẨN mỗi ngày
 ```powershell
-python el\load_raw.py --tables performance_list send_sample --days 14
+python el\load_raw.py --tables performance_list send_sample product_name_map pic_team --days 14
 dbt build -s mart_data+ --vars '{incr_days: 14}'
-dbt build -s mart_data+ --vars '{incr_days: 7, agg_months: ["2026-08"]}'
 ```
+> 3 bảng nhỏ (`send_sample`, `product_name_map`, `pic_team`) LUÔN full reload dù truyền `--days`;
+> `--days` chỉ giới hạn `performance_list`. Nạp đủ cả 4 bảng cho chắc — 3 bảng nhỏ rất nhẹ (≤ 45k dòng).
+> Riêng `send_sample` là **bắt buộc** nếu muốn `campaign_id` cập nhật.
+
+Chạy một dòng (dùng cho Task Scheduler):
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "cd D:\PTDL\DBT_postgre\dwh_project; . .\load_connections.ps1; python el\load_raw.py --tables performance_list send_sample product_name_map pic_team --days 14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; dbt build -s mart_data+ --vars '{incr_days: 14}'; exit $LASTEXITCODE"
+```
+> `if ($LASTEXITCODE -ne 0) { exit ... }` sau bước EL là **quan trọng**: nếu dùng `;` trơn mà EL lỗi,
+> dbt vẫn chạy tiếp trên dữ liệu raw cũ và báo thành công — hỏng dữ liệu trong im lặng.
 > `mart_data_agg` / `mart_new_video` đọc từ `mart_data` → nếu chỉ chạy riêng chúng, phải chạy `mart_data` (hoặc `mart_data+`) TRƯỚC.
