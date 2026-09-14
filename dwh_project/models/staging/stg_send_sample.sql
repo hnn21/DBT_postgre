@@ -14,7 +14,7 @@ select
     vi_tri,
     nullif(cost,'')::numeric::int                                           as cost,
     sdt,
-    campaign_id
+    nullif(trim(campaign_id),'')::numeric::int                              as campaign_id
 from src
 where koc_kol is not null and trim(koc_kol) <> ''
   and pic is not null and trim(pic) <> ''
