@@ -25,6 +25,7 @@
     materialized='incremental',
     incremental_strategy='delete+insert',
     unique_key='thang',
+    on_schema_change='append_new_columns',
     pre_hook=["set work_mem = '256MB'", "set jit = off"]
 ) }}
 
@@ -46,6 +47,7 @@ select
     "Vị trí",
     "Mẫu gửi",
     nguon_yeu_cau,
+    campaign_id,
     video_id,
     coalesce(sum(vv), 0)::bigint                   as so_view,
     coalesce(sum(click_on_the_product), 0)::bigint as so_click,
@@ -86,4 +88,5 @@ group by
     "Vị trí",
     "Mẫu gửi",
     nguon_yeu_cau,
+    campaign_id,
     video_id

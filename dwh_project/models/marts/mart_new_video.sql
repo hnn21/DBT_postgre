@@ -22,7 +22,7 @@
 with base as (
     select
         video_id, "time", creator_name, "Mẫu gửi", brand, "PIC", "Team",
-        prod_contain, prod_contain_combo, "Vị trí", nguon_yeu_cau,
+        prod_contain, prod_contain_combo, "Vị trí", nguon_yeu_cau, campaign_id,
         vv, count_order, video_revenue, duration_date,
         min("time") filter (where duration_date > 0) over (partition by video_id) as _min_time
     from {{ ref('mart_data') }}
@@ -40,6 +40,7 @@ select
     max(prod_contain_combo) filter (where duration_date > 0 and "time" = _min_time) as prod_contain_combo,
     max("Vị trí")           filter (where duration_date > 0 and "time" = _min_time) as "Vị trí",
     max(nguon_yeu_cau)      filter (where duration_date > 0 and "time" = _min_time) as nguon_yeu_cau,
+    max(campaign_id)        filter (where duration_date > 0 and "time" = _min_time) as campaign_id,
     (sum(count_order))::bigint as so_don,
     (sum(vv))::bigint          as "View",
     coalesce(sum(video_revenue), 0)::bigint as gmv
