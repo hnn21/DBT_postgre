@@ -10,6 +10,7 @@
     materialized='incremental',
     incremental_strategy='delete+insert',
     unique_key=['video_id', 'date_file_excel'],
+    on_schema_change='append_new_columns',
     pre_hook=["set work_mem = '256MB'", "set jit = off", "set enable_mergejoin = off"],
     post_hook=["set enable_mergejoin = on"]
 ) }}
@@ -156,7 +157,7 @@ pic_pick as (
 
 -- (13)(14)(15) Vị trí, Mẫu gửi, nguon_yeu_cau theo (creator, prod, time): LỌC SL>0
 vm_ranked as (
-    select k.creator_name, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.nguon_yeu_cau, s.ngay_duyet_mau
+    select k.creator_name, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.nguon_yeu_cau, s.campaign_id, s.ngay_duyet_mau
     from keys_cpt k
     join send s
       on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
@@ -169,7 +170,8 @@ vm_pick as (
     select creator_name, prod_contain, time,
            max(vi_tri)         filter (where ngay_duyet_mau = mn) as "Vị trí",
            max(product_detail) filter (where ngay_duyet_mau = mn) as "Mẫu gửi",
-           max(nguon_yeu_cau)  filter (where ngay_duyet_mau = mn) as nguon_yeu_cau
+           max(nguon_yeu_cau)  filter (where ngay_duyet_mau = mn) as nguon_yeu_cau,
+           max(campaign_id)    filter (where ngay_duyet_mau = mn) as campaign_id
     from (
         select r.*, min(ngay_duyet_mau) over (partition by creator_name, prod_contain, time) as mn
         from vm_ranked r
@@ -198,7 +200,8 @@ picks as materialized (
         pp."PIC"        as _pic,
         vm."Vị trí"     as _vi_tri,
         vm."Mẫu gửi"    as _mau_gui,
-        vm.nguon_yeu_cau as _nguon_yeu_cau
+        vm.nguon_yeu_cau as _nguon_yeu_cau,
+        vm.campaign_id   as _campaign_id
     from keys_cpt k
     left join pl_pick_v plv
       on k.creator_name = plv.creator_name and k.prod_contain = plv.prod_contain and k.time = plv.time
@@ -217,7 +220,8 @@ j as (
         pk._pic                         as _pic,
         pk._vi_tri                      as _vi_tri,
         pk._mau_gui                     as _mau_gui,
-        pk._nguon_yeu_cau               as _nguon_yeu_cau
+        pk._nguon_yeu_cau               as _nguon_yeu_cau,
+        pk._campaign_id                 as _campaign_id
     from enriched e
     left join gui_mau_map gm
       on lower(e.creator_name) = gm.creator_key and e.prod_contain = gm.prod_contain
@@ -314,7 +318,8 @@ final as (
         tm.team    as "Team",
         g._vi_tri  as "Vị trí",
         g._mau_gui as "Mẫu gửi",
-        g._nguon_yeu_cau as nguon_yeu_cau
+        g._nguon_yeu_cau as nguon_yeu_cau,
+        g._campaign_id   as campaign_id
     from grp g
     left join team_map tm on g._pic = tm.pic_rename
 )
