@@ -1,12 +1,17 @@
-"""EL: load 4 bảng MySQL (tiktok_dashboard) -> schema `raw` trên PostgreSQL.
+"""EL: load 5 bảng nguồn -> schema `raw` trên PostgreSQL.
+
+Hai nguồn:
+  • MySQL (tiktok_dashboard): performance_list, send_sample, product_name_map, pic_team
+  • Postgres `krm` (hệ thống KOC): users — bảng nhân sự, dùng để gắn PIC theo user_id.
+    Phải hạ cánh về raw vì Postgres KHÔNG join cross-database được.
 
 3 chế độ cho `performance_list`:
   full  : python el/load_raw.py                          (drop + create + copy toàn bộ)
   range : python el/load_raw.py --from 2026-07-01 --to 2026-07-14
   days  : python el/load_raw.py --days 30                (date_file_excel >= today - 30)
-3 bảng nhỏ (send_sample, product_name_map, pic_team) LUÔN full reload.
+4 bảng nhỏ (send_sample, product_name_map, pic_team, users) LUÔN full reload.
 
-Kỹ thuật: đọc MySQL bằng SSCursor theo lô -> COPY vào Postgres. Nhẹ RAM.
+Kỹ thuật: đọc theo lô -> COPY vào Postgres. Nhẹ RAM (MySQL dùng SSCursor).
 Tự đọc connections.env.
 """
 import argparse
@@ -62,10 +67,22 @@ PG_URL = URL.create(
     username=PG["user"], password=PG["password"],
     host=PG["host"], port=PG["port"], database=PG["dbname"],
 )
+# Nguồn thứ 2: Postgres `krm` (hệ thống KOC). KHÁC server với đích -> Postgres không
+# join cross-database được, nên phải hạ cánh về raw trước.
+# CẢNH BÁO: đặt tên biến phải là KRM_*, KHÔNG được trùng DEST_*. Nếu trùng, tuỳ cách
+# nạp env mà DEST_* bị ghi đè -> dbt dựng marts thẳng vào DB sản xuất `krm`.
+KRM = dict(
+    host=os.environ["KRM_HOST"],
+    port=int(os.getenv("KRM_PORT", "5432")),
+    user=os.environ["KRM_USER"],
+    password=os.environ["KRM_PASSWORD"],
+    dbname=os.environ["KRM_DB"],
+)
 RAW = os.getenv("PG_RAW_SCHEMA", "raw")
 BATCH = 50000
 SMALL_TABLES = ("send_sample", "product_name_map", "pic_team")
-ALL_TABLES = SMALL_TABLES + ("performance_list",)
+PG_TABLES = ("users",)          # nguồn Postgres krm — luôn full (bảng nhỏ)
+ALL_TABLES = SMALL_TABLES + ("performance_list",) + PG_TABLES
 
 QUERIES = {
     "performance_list": """
@@ -79,7 +96,7 @@ QUERIES = {
                `Phân loại Creator` AS phan_loai_creator, `Nguồn yêu cầu` AS nguon_yeu_cau,
                `Tên sản phẩm` AS ten_san_pham, `SL` AS sl, `sheet`, `Số video` AS so_video,
                `MST/CCCD` AS mst_cccd, `Mã đơn hàng` AS ma_don_hang, `Vị trí` AS vi_tri,
-               `cost`, `SDT` AS sdt, `campaign_id`
+               `cost`, `SDT` AS sdt, `campaign_id`, `user_id`, `koc_booking_content_id`, `agency_id`
         FROM MVA_KOC_KOL_send_sample""",
     "product_name_map": """
         SELECT video_id, product_contain, product_contain_combo
@@ -87,6 +104,14 @@ QUERIES = {
     "pic_team": """
         SELECT Raw_name AS raw_name, Change_name AS doi_ten, Team AS team
         FROM PIC_Team""",
+}
+
+# Truy vấn cho nguồn Postgres `krm`. CHỈ lấy cột cần cho pipeline —
+# KHÔNG kéo password / email / reset_password_token về kho dữ liệu.
+QUERIES_PG = {
+    "users": """
+        SELECT id, username, team::text AS team, status
+        FROM public.users""",
 }
 
 
@@ -178,6 +203,41 @@ def full_load(myconn, pgconn, tbl, query):
     finally:
         try:
             cur.close()  # nuốt lỗi close để không che lỗi gốc (vd stream đứt giữa chừng)
+        except Exception:
+            pass
+        pg.close()
+
+
+def full_load_pg(pgsrc, pgconn, tbl, query):
+    """Full reload từ Postgres nguồn (`krm`) -> raw. Cùng khuôn với full_load().
+
+    Dùng cho bảng nhỏ (users ~79 dòng) nên không cần server-side cursor.
+    Giống full_load: CREATE IF NOT EXISTS + đồng bộ cột thiếu + TRUNCATE (không DROP,
+    để không phá các view dbt phụ thuộc), tất cả trong 1 giao dịch.
+    """
+    pg = pgconn.cursor()
+    src = pgsrc.cursor()
+    try:
+        src.execute(query)
+        cols = [d[0] for d in src.description]
+        pg.execute(f'CREATE SCHEMA IF NOT EXISTS "{RAW}"')
+        pg.execute(f'CREATE TABLE IF NOT EXISTS "{RAW}"."{tbl}" (' + ", ".join(f'"{c}" text' for c in cols) + ')')
+        pg.execute(
+            "select column_name from information_schema.columns "
+            "where table_schema = %s and table_name = %s",
+            (RAW, tbl),
+        )
+        have = {r[0] for r in pg.fetchall()}
+        for c in cols:
+            if c not in have:
+                pg.execute(f'ALTER TABLE "{RAW}"."{tbl}" ADD COLUMN "{c}" text')
+                print(f"  {tbl}: + thêm cột mới '{c}'", flush=True)
+        pg.execute(f'TRUNCATE "{RAW}"."{tbl}"')
+        _copy_rows(src, pg, tbl, cols)
+        pgconn.commit()
+    finally:
+        try:
+            src.close()
         except Exception:
             pass
         pg.close()
@@ -293,6 +353,15 @@ def main(argv=None):
                 full_load(myconn, pgconn, "performance_list", QUERIES["performance_list"])
             else:
                 range_load(myconn, pgconn, "performance_list", d_from, d_to)
+        # Nguồn Postgres krm — chỉ mở kết nối khi thực sự cần.
+        pg_targets = [t for t in PG_TABLES if t in targets]
+        if pg_targets:
+            pgsrc = psycopg2.connect(**KRM)
+            try:
+                for tbl in pg_targets:
+                    full_load_pg(pgsrc, pgconn, tbl, QUERIES_PG[tbl])
+            finally:
+                pgsrc.close()
     finally:
         myconn.close()
         pgconn.close()
