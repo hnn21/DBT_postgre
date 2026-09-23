@@ -36,9 +36,9 @@ lên sóng trong khoảng hiệu lực** `[ngay_duyet_mau … ngay_ket_thuc]`. K
 cd dwh_project
 . .\load_connections.ps1        # nạp connections.env -> DBT_PROFILES_DIR, SRC_*, DEST_*, PYTHONUTF8
 ```
-> Nạp dữ liệu raw mới trước khi build (daily):
+> Nạp dữ liệu raw mới trước khi build (daily) — không kèm `--tables` là nạp cả 4 bảng:
 > ```powershell
-> python el\load_raw.py --tables performance_list send_sample --days 14
+> python el\load_raw.py --days 14
 > ```
 > Cờ `load_raw.py`: `--tables` chọn bảng nạp (mặc định tất cả 4 bảng); `--days N`/`--from/--to`
 > giới hạn performance_list; `--chunk-days N` nạp performance_list theo lô N ngày (an toàn cho
@@ -48,15 +48,17 @@ cd dwh_project
 
 ## 1. INCREMENTAL — chạy THƯỜNG NGÀY (chỉ nạp lại ~cửa sổ ngày gần nhất)
 
-Build cả 3 bảng đúng thứ tự:
+Build đúng thứ tự, từ view thượng nguồn xuống 2 bảng đích:
 ```powershell
-dbt build -s mart_data+
+dbt run
 ```
-> `mart_data+` = `mart_data` và **mọi model hạ nguồn** (`mart_data_agg`, `mart_new_video`) — dbt tự xếp thứ tự.
+> `+mart_data+` = **thượng nguồn** (staging/intermediate views + seed) + `mart_data` + **hạ nguồn**
+> (`mart_data_agg`, `mart_new_video`) — dbt tự xếp thứ tự. Xem mục 3 để hiểu vì sao KHÔNG nên dùng
+> `mart_data+` (thiếu `+` phía trước).
 
 Đổi độ dài cửa sổ khi chạy (mặc định 90; daily NÊN dùng 14 vì drift đã hết):
 ```powershell
-dbt build -s mart_data+ --vars '{incr_days: 14}'
+dbt run --vars '{incr_days: 14}'
 ```
 > `duration_date`/`range_date` nay TĨNH → KHÔNG còn mốc sàn 60 ngày (cảnh báo cũ đã lỗi thời);
 > 14 (hoặc 7) an toàn. Window daily chỉ còn để bắt `send_sample` gần đây; backdate xa → full-refresh định kỳ.
@@ -79,7 +81,7 @@ dbt build -s mart_data_agg --vars '{agg_months: ["2026-06","2026-07"]}'
 
 Bắt buộc để bắt các thay đổi hồi tố của `send_sample` cho dòng cũ (ngoài cửa sổ incremental):
 ```powershell
-dbt build -s mart_data+ --full-refresh
+dbt run --full-refresh
 ```
 > `--full-refresh` dựng lại `mart_data` (bỏ filter cửa sổ) VÀ `mart_data_agg` (toàn bộ tháng,
 > bỏ qua mode incremental). `mart_new_video` là table nên luôn dựng lại. Dùng full-refresh để bắt
@@ -87,9 +89,134 @@ dbt build -s mart_data+ --full-refresh
 
 ---
 
+## 2b. MÔ HÌNH ID — marts hạ nguồn chở KHOÁ, dim chở NHÃN
+
+Từ 2026-09-22, `mart_data_agg` / `mart_new_video` **không còn** `creator_name`, `PIC`, `Team`.
+Chúng chở `creator_id` + `pic_user_id`; nhãn lấy từ 2 bảng dim khi join trong Power BI.
+
+| Bảng | Vai trò | Dòng |
+|---|---|---|
+| `marts.map_creator` | kho **chỉ-thêm** mọi cặp (creator_id, tên) từng thấy + first/last_seen | 54.533 |
+| `marts.map_creator_resolve` | view: tên → creator_id, chỉ tên phân giải DUY NHẤT | — |
+| `marts.dim_creator` | **1 dòng/creator_id**, tên mới nhất — đích join của PBI | 45.441 |
+| `marts.dim_pic` | **1 dòng/user_id** (username, team_phong_ban) — đích join của PBI | 79 |
+
+> ⚠️ `dim_creator` BẮT BUỘC 1 dòng/creator_id. Nếu chứa đủ mọi tên, join vào fact sẽ
+> **nhân bản** mỗi dòng theo số tên (có creator 12 tên) → phá mọi phép tổng. Muốn tra lịch
+> sử tên thì `select * from marts.map_creator where creator_id = '...' order by last_seen desc`.
+
+> ⚠️ `map_creator` có `full_refresh=false` nên `--full-refresh` KHÔNG xoá nó (đã kiểm chứng:
+> chạy full-refresh toàn cây, bảng vẫn 54.533 dòng). Đây là chủ ý — `full_load()` dùng
+> TRUNCATE nên nếu MySQL dọn dữ liệu cũ, đây là nơi DUY NHẤT còn giữ tên cũ.
+
+### Bảng `users` (nguồn Postgres `krm`)
+
+`load_raw.py` nay đọc 2 nguồn. `users` đến từ Postgres `krm` (KHÔNG phải MySQL) vì Postgres
+không join cross-database được. Cần `KRM_HOST/KRM_PORT/KRM_DB/KRM_USER/KRM_PASSWORD` trong
+`connections.env`.
+
+> ⚠️ **TUYỆT ĐỐI không đặt tên biến KRM là `DEST_*`.** `load_connections.ps1` nạp tuần tự và
+> dòng sau ghi đè dòng trước → `DEST_*` sẽ trỏ vào `krm` và `dbt run --full-refresh` sẽ dựng
+> toàn bộ marts **vào database sản xuất `krm`**. Đã suýt xảy ra ngày 2026-09-22.
+
+---
+
+## 2c. BẪY: dựng lại view lẻ làm CHẾT view hạ nguồn
+
+dbt drop view kèm `cascade`. Dựng lẻ `stg_pic_team` sẽ **xoá luôn** `int_send_sample` (view phụ
+thuộc), và lỗi chỉ lộ ra ở lần chạy sau dưới dạng "relation does not exist".
+
+❌ `dbt run -s stg_pic_team`
+✅ `dbt run --exclude mart_data mart_data_agg mart_new_video map_creator` (dựng cả cụm view)
+
+> Chạy dbt từ Bash (không qua `load_connections.ps1`) thì phải tự export thêm
+> `SRC_DB="$DEST_DB" SRC_SCHEMA=raw`, nếu không `source('raw',...)` sẽ trỏ sang database `dwh`
+> và báo `cross-database references are not implemented`.
+
+---
+
+## 3. CHỌN SELECTOR ĐÚNG — `mart_data+` hay `+mart_data+`?
+
+Dấu `+` **đằng sau** = "và hạ nguồn". Dấu `+` **đằng trước** = "và thượng nguồn". Đếm thật bằng `dbt ls`:
+
+| Selector | Số node | Gồm những gì |
+|---|---|---|
+| `mart_data+` | **3** | `mart_data`, `mart_data_agg`, `mart_new_video` |
+| `+mart_data+` | **13** | thượng nguồn + mart_data + hạ nguồn — **THIẾU 3 node** |
+| `dbt run` (không `-s`) | **16** | toàn bộ project |
+
+> ⚠️ **`+mart_data+` BỎ SÓT `dim_creator`, `dim_pic`, `stg_users`.** Chúng là nhánh SONG SONG,
+> không phải thượng/hạ nguồn của `mart_data`, nên selector đó không chạm tới. Mà đây lại đúng là
+> 2 bảng dim Power BI join vào để lấy `creator_name` / `username` / `team` → dùng `+mart_data+`
+> cho daily sẽ khiến nhãn hiển thị **cũ dần mà không ai biết**.
+>
+> ✅ Từ nay daily dùng **`dbt run` không selector** (16 node). Ba node thừa đều rẻ:
+> `stg_users` là view, `dim_pic` 79 dòng, `dim_creator` quét bảng 54k dòng.
+
+### Khi nào BẮT BUỘC phải có `+` phía trước
+
+| Thứ gì thay đổi | Cần `+` phía trước? |
+|---|---|
+| **Dữ liệu** (vừa chạy `load_raw`) | ❌ không — staging/intermediate là **view**, tự phản ánh raw ngay |
+| **File model** thượng nguồn (`stg_*.sql`, `int_*.sql`) | ✅ **có** — view trong DB vẫn chạy câu SQL **cũ** cho tới khi `dbt run` dựng lại |
+
+> ⚠️ Đây là bẫy im lặng. Sửa `int_send_sample.sql` rồi chạy `dbt build -s mart_data+` thì dbt
+> báo thành công nhưng `mart_data` vẫn đọc view CŨ. Không có cảnh báo nào.
+
+**Khuyến nghị: dùng `+mart_data+` làm mặc định.** Các model thượng nguồn đều là view, dựng dưới 1 giây
+→ gần như không tốn thêm thời gian, mà khỏi phải nhớ hôm nào có sửa model. Thêm model mới về sau
+(vd `int_creator_alias`) cũng tự nằm trong phạm vi, không phải sửa lệnh.
+
+### Selector dùng tên MODEL, không phải tên BẢNG
+
+2 model đang có `alias` → tên bảng vật lý khác tên model:
+
+| Model (dùng trong `-s`) | Bảng thật được ghi |
+|---|---|
+| `mart_data` | `marts.mart_data` |
+| `mart_data_agg` | **`marts.mart_data_agg_test`** |
+| `mart_new_video` | **`marts.mart_new_video_test`** |
+
+Gõ `-s mart_data_agg_test` thì dbt **không tìm thấy gì**.
+
+> ⚠️ **Power BI đang đọc chính 2 bảng `_test`.** Các bảng KHÔNG hậu tố là bản cũ bỏ không.
+> Nghĩa là alias **KHÔNG phải lưới an toàn** — mọi thay đổi schema tác động báo cáo ngay lần build đầu.
+
+---
+
+## 4. LỆNH DỰNG ĐẦY ĐỦ (A → Z)
+
+Nạp toàn bộ dữ liệu đầu vào rồi dựng hết từ thượng nguồn tới 2 bảng đích:
+
+```powershell
+python el\load_raw.py --chunk-days 30
+dbt run --full-refresh
+```
+
+> ⚠️ **Dùng `dbt run`, KHÔNG dùng `dbt build`** cho lệnh đầy đủ. `dbt build` chạy cả unit test, mà
+> `ut_stg_send_sample_cleanup` đang **ERROR** → nó chặn `stg_send_sample` và **SKIP toàn bộ hạ nguồn**
+> (đã kiểm chứng: `ERROR=1 SKIP=4`). Lỗi này có từ trước và chưa được sửa. `dbt build -s mart_data+`
+> không gặp vì selector đó không chạm tới `stg_send_sample`.
+
+Chạy test riêng (hiện có đúng 1 ERROR đã biết, 15 test còn lại pass):
+```powershell
+dbt test
+```
+
+> ⚠️ `--chunk-days` ở chế độ full **KHÔNG `TRUNCATE`** — nó chỉ `DELETE` từng lô trong dải
+> `min/max(date_file_excel)` của MySQL. Dòng nào trong `raw` nằm ngoài dải đó (hoặc `date_file_excel`
+> rỗng) sẽ **sống sót**. Muốn xoá sạch thật sự: `python el\load_raw.py` (không `--chunk-days`).
+
+Khi nào unit test kia được sửa thì gộp lại thành một lệnh:
+```powershell
+dbt build -s +mart_data+ --full-refresh
+```
+
+---
+
 ## Ghi chú
-- `dbt build` = chạy model + unit test `ut_mart_*`. Chỉ muốn dựng bảng (bỏ test) thì dùng `dbt run` thay `dbt build`.
-- Chạy cả pipeline (staging → intermediate → marts): bỏ `-s ...`, chỉ `dbt build` (hoặc kèm `--full-refresh`).
+- `dbt build` = model + test. `dbt run` = chỉ model, không test → dùng khi test đang hỏng chặn pipeline (mục 4).
+- Chạy cả pipeline: `dbt build` trơn (bỏ `-s`) ≡ `-s +mart_data+` ở project này (10/10 node).
 - Nút thắt tốc độ còn lại là disk I/O + `shared_buffers` của server đích (bảng ~2GB), không sửa được bằng SQL — xem lịch sử tối ưu trong git.
 
 ---
@@ -100,10 +227,13 @@ Chạy sau khi đã chuẩn bị (mục 0): `.\venv\Scripts\Activate.ps1` → `c
 
 ### A. `load_raw.py` (EL: MySQL → raw)
 ```powershell
-# Daily (khuyến nghị): performance_list 14 ngày + 3 bảng nhỏ full
+# Daily (khuyến nghị): cả 4 bảng — performance_list 14 ngày, 3 bảng nhỏ full
+python el\load_raw.py --days 14
+
+# Dạng dài tương đương (liệt kê tường minh, không khác gì)
 python el\load_raw.py --tables performance_list send_sample product_name_map pic_team --days 14
 
-# Nạp TẤT CẢ 4 bảng, full (mặc định không cờ)
+# Nạp TẤT CẢ 4 bảng, full (mặc định không cờ) — performance_list bị TRUNCATE
 python el\load_raw.py
 
 # Chỉ 1 / vài bảng (bảng nhỏ luôn full)
@@ -136,27 +266,40 @@ dbt build -s mart_data_agg --full-refresh
 dbt build -s mart_new_video
 ```
 
-### D. Cả cụm marts (mart_data + 2 bảng hạ nguồn)
+### D. Cả cụm marts (thượng nguồn → 2 bảng đích)
 ```powershell
-# Daily: mart_data incremental 14 ngày → agg mặc định → new_video full
-dbt build -s mart_data+ --vars '{incr_days: 14}'
+# Daily: view thượng nguồn → mart_data 14 ngày → agg mặc định → new_video full
+dbt run --vars '{incr_days: 14}'
 
 # Full-refresh toàn bộ (định kỳ hằng tuần, bắt sửa hồi tố send_sample)
-dbt build -s mart_data+ --full-refresh
+dbt run --full-refresh
 ```
+> Dùng `+mart_data+` (có `+` phía trước) làm mặc định — xem mục 3. `mart_data+` bỏ sót các view
+> thượng nguồn nên KHÔNG áp dụng được thay đổi ở `stg_*.sql` / `int_*.sql`.
 
 ### E. Trình tự CHUẨN mỗi ngày
 ```powershell
-python el\load_raw.py --tables performance_list send_sample product_name_map pic_team --days 14
-dbt build -s mart_data+ --vars '{incr_days: 14}'
+python el\load_raw.py --days 14
+dbt run --vars '{incr_days: 14}'
 ```
+> `--days 14` không kèm `--tables` = nạp **cả 4 bảng**, tương đương hệt lệnh dài
+> `--tables performance_list send_sample product_name_map pic_team --days 14`.
 > 3 bảng nhỏ (`send_sample`, `product_name_map`, `pic_team`) LUÔN full reload dù truyền `--days`;
-> `--days` chỉ giới hạn `performance_list`. Nạp đủ cả 4 bảng cho chắc — 3 bảng nhỏ rất nhẹ (≤ 45k dòng).
-> Riêng `send_sample` là **bắt buộc** nếu muốn `campaign_id` cập nhật.
+> `--days` chỉ giới hạn `performance_list`. Riêng `send_sample` là **bắt buộc** nếu muốn `campaign_id` cập nhật.
+
+> ⚠️ **Hai con số phải khớp nhau.** `load_raw --days N` và `--vars '{incr_days: N}'` phải cùng N.
+> Nạp tháng 1 (`--from 2026-01-01`) mà chạy `incr_days: 14` thì dbt **báo thành công nhưng không
+> cập nhật dòng nào** — không có gì cảnh báo bạn.
+
+> ℹ️ Vì `send_sample` LUÔN full reload, mọi sửa đổi bên MySQL (kể cả đổi `Tên sản phẩm`) lan vào
+> hệ thống **ngay lần chạy kế tiếp, không độ trễ, không cảnh báo**. Nếu tên sản phẩm đổi làm luật
+> `prod_contain` không còn khớp → `prod_contain = NULL` → video mất attribution và **biến mất khỏi
+> `mart_new_video`** (bảng này có `having count(*) filter (where duration_date > 0) > 0`, loại cả dòng
+> chứ không hiện số 0).
 
 Chạy một dòng (dùng cho Task Scheduler):
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "cd D:\PTDL\DBT_postgre\dwh_project; . .\load_connections.ps1; python el\load_raw.py --tables performance_list send_sample product_name_map pic_team --days 14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; dbt build -s mart_data+ --vars '{incr_days: 14}'; exit $LASTEXITCODE"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "cd D:\PTDL\DBT_postgre\dwh_project; . .\load_connections.ps1; python el\load_raw.py --days 14; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; dbt run --vars '{incr_days: 14}'; exit $LASTEXITCODE"
 ```
 > `if ($LASTEXITCODE -ne 0) { exit ... }` sau bước EL là **quan trọng**: nếu dùng `;` trơn mà EL lỗi,
 > dbt vẫn chạy tiếp trên dữ liệu raw cũ và báo thành công — hỏng dữ liệu trong im lặng.

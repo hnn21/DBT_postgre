@@ -4,9 +4,12 @@ models:
   - name: mart_data
     description: >
       Bảng rộng tái tạo bảng `data` của MVA_VideoAFF.pbix: cột gốc performance_list
-      + 15 cột tính toán (prod_contain, prod_contain_combo, Loại video, Ngày gửi mẫu,
+      + các cột tính toán (prod_contain, prod_contain_combo, Loại video, Ngày gửi mẫu,
       duration_date, range_date, video_duoctinhPFM, DK Creator được gửi mẫu,
-      DK Time air video, Phân loại Creator, Group creator, PIC, Team, Vị trí, Mẫu gửi).
+      DK Time air video, Phân loại Creator, Group creator, PIC, pic_user_id,
+      Vị trí, Mẫu gửi, campaign_id, koc_booking_content_id).
+      Khoá join với bảng gửi mẫu là `creator_id` (KHÔNG phải creator_name) — xem
+      map_creator/map_creator_resolve. Cột `Team` ĐÃ BỎ: lấy từ dim_pic qua pic_user_id.
     columns:
       - name: video_id
         description: "Khóa video."
@@ -23,13 +26,26 @@ models:
           Mã campaign của lần gửi mẫu mà video này rơi vào (cùng bản ghi đã cho
           Vị trí/Mẫu gửi/nguon_yeu_cau). NULL nếu video không khớp lần gửi mẫu nào
           hoặc lần gửi mẫu đó không thuộc campaign. Kiểu text.
+      - name: pic_user_id
+        description: >
+          Danh tính PIC (users.id của hệ thống krm). Lấy từ stg_send_sample:
+          coalesce(user_id ở nguồn, tra seed pic_user_map theo tên PIC). Join với
+          dim_pic để lấy username/team.
+      - name: koc_booking_content_id
+        description: >
+          FK tới koc_booking_contents.id. Pick theo ĐÚNG luật của campaign_id
+          (cụm vm_pick). NULL nếu bản ghi gửi mẫu khớp không có giá trị này —
+          nguồn mới phủ ~4,1% nên phần lớn dòng là NULL.
 
   - name: mart_data_agg
     description: >
-      Metric hiệu suất từ mart_data theo tổ hợp 16 chiều (thang, tuan, time, brand,
-      creator_name, duration_date, range_date, prod_contain, prod_contain_combo,
-      Ngày gửi mẫu, Phân loại Creator, Group creator, PIC, Team, Vị trí, Mẫu gửi) + video_id.
-      GRAIN = 16 chiều + video_id, tức 1 dòng = 1 video trong 1 tổ hợp chiều.
+      Metric hiệu suất từ mart_data theo tổ hợp các chiều (thang, tuan, time, brand,
+      creator_id, pic_user_id, duration_date, range_date, prod_contain, prod_contain_combo,
+      Ngày gửi mẫu, Phân loại Creator, Group creator, Vị trí, Mẫu gửi, campaign_id,
+      koc_booking_content_id) + video_id.
+      GRAIN = các chiều + video_id, tức 1 dòng = 1 video trong 1 tổ hợp chiều.
+      CHỞ ID, KHÔNG CHỞ NHÃN: creator_name lấy từ dim_creator, username/team lấy từ
+      dim_pic — join trong Power BI. Bảng fact không còn creator_name/PIC/Team.
       SỐ VIDEO phải đếm bằng count(distinct video_id) / DISTINCTCOUNT(video_id) — KHÔNG
       cộng số dòng; nhờ giữ video_id, số video đúng ở mọi mức roll-up (tuần/tháng/quý).
       KHÔNG lọc duration_date — nó là một chiều trong grain, phía báo cáo tự lọc nếu cần.
@@ -72,20 +88,20 @@ unit_tests:
       - input: ref('mart_data')
         rows:
           # v1 xuất hiện 2 snapshot, 13 chiều y hệt -> gộp còn 1
-          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
-          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_id: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_id: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
           # v2 giống mọi chiều nhưng KHÁC creator_name -> dòng riêng
-          - {video_id: "v2", time: "2025-03-10", brand: "DHC", creator_name: "b", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
+          - {video_id: "v2", time: "2025-03-10", brand: "DHC", creator_id: "b", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
           # v4 cùng creator "a" nhưng KHÁC duration_date -> dòng riêng
-          - {video_id: "v4", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 3, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
+          - {video_id: "v4", time: "2025-03-10", brand: "DHC", creator_id: "a", duration_date: 3, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web"}
           # v3 duration_date <= 0 -> vẫn có mặt, nằm ở nhóm duration_date = -1
-          - {video_id: "v3", time: "2025-03-10", brand: "DHC", creator_name: "c", duration_date: -1, range_date: null, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": null, "Phân loại Creator": "Organic", "Group creator": "Organic", "PIC": null, "Team": null, "Vị trí": null, "Mẫu gửi": null, nguon_yeu_cau: null}
+          - {video_id: "v3", time: "2025-03-10", brand: "DHC", creator_id: "c", duration_date: -1, range_date: null, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": null, "Phân loại Creator": "Organic", "Group creator": "Organic", pic_user_id: null, "Vị trí": null, "Mẫu gửi": null, nguon_yeu_cau: null}
     expect:
       rows:
-        - {video_id: "v1", creator_name: "a", duration_date: 7}
-        - {video_id: "v2", creator_name: "b", duration_date: 7}
-        - {video_id: "v4", creator_name: "a", duration_date: 3}
-        - {video_id: "v3", creator_name: "c", duration_date: -1}
+        - {video_id: "v1", creator_id: "a", duration_date: 7}
+        - {video_id: "v2", creator_id: "b", duration_date: 7}
+        - {video_id: "v4", creator_id: "a", duration_date: 3}
+        - {video_id: "v3", creator_id: "c", duration_date: -1}
 
   # ── Nhóm 0b: metric cộng trên MỌI dòng snapshot ─────────────────
   - name: ut_agg_metrics_sum_snapshots
@@ -100,14 +116,14 @@ unit_tests:
     given:
       - input: ref('mart_data')
         rows:
-          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 100, click_on_the_product: 10, count_order: 2, video_revenue: 500000, product_impressions: 40, unit_sales: 3}
-          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_name: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 250, click_on_the_product: 5, count_order: 1, video_revenue: 300000, product_impressions: 60, unit_sales: 1}
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_id: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 100, click_on_the_product: 10, count_order: 2, video_revenue: 500000, product_impressions: 40, unit_sales: 3}
+          - {video_id: "v1", time: "2025-03-10", brand: "DHC", creator_id: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 250, click_on_the_product: 5, count_order: 1, video_revenue: 300000, product_impressions: 60, unit_sales: 1}
           # v2 cùng tổ hợp, metric null -> phải ra 0 chứ không null
-          - {video_id: "v2", time: "2025-03-11", brand: "DHC", creator_name: "b", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: null, click_on_the_product: null, count_order: null, video_revenue: null, product_impressions: null, unit_sales: null}
+          - {video_id: "v2", time: "2025-03-11", brand: "DHC", creator_id: "b", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-03-05", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: null, click_on_the_product: null, count_order: null, video_revenue: null, product_impressions: null, unit_sales: null}
     expect:
       rows:
-        - {video_id: "v1", creator_name: "a", so_view: 350, so_click: 15, so_don: 3, gmv: 800000, product_impressions: 100, unit_sales: 4}
-        - {video_id: "v2", creator_name: "b", so_view: 0, so_click: 0, so_don: 0, gmv: 0, product_impressions: 0, unit_sales: 0}
+        - {video_id: "v1", creator_id: "a", so_view: 350, so_click: 15, so_don: 3, gmv: 800000, product_impressions: 100, unit_sales: 4}
+        - {video_id: "v2", creator_id: "b", so_view: 0, so_click: 0, so_don: 0, gmv: 0, product_impressions: 0, unit_sales: 0}
 
   # ── Nhóm 0c: thang / tuan từ date_file_excel ───────────────────
   - name: ut_agg_thang_tuan
@@ -122,9 +138,9 @@ unit_tests:
     given:
       - input: ref('mart_data')
         rows:
-          - {video_id: "v1", date_file_excel: "2025-03-10", time: "2025-03-01", brand: "DHC", creator_name: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 100, click_on_the_product: 1, count_order: 1, video_revenue: 1000, product_impressions: 10, unit_sales: 1}
-          - {video_id: "v1", date_file_excel: "2025-04-15", time: "2025-03-01", brand: "DHC", creator_name: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 200, click_on_the_product: 2, count_order: 2, video_revenue: 2000, product_impressions: 20, unit_sales: 2}
-          - {video_id: "v1", date_file_excel: "2025-12-29", time: "2025-03-01", brand: "DHC", creator_name: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", "PIC": "An", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 300, click_on_the_product: 3, count_order: 3, video_revenue: 3000, product_impressions: 30, unit_sales: 3}
+          - {video_id: "v1", date_file_excel: "2025-03-10", time: "2025-03-01", brand: "DHC", creator_id: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 100, click_on_the_product: 1, count_order: 1, video_revenue: 1000, product_impressions: 10, unit_sales: 1}
+          - {video_id: "v1", date_file_excel: "2025-04-15", time: "2025-03-01", brand: "DHC", creator_id: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 200, click_on_the_product: 2, count_order: 2, video_revenue: 2000, product_impressions: 20, unit_sales: 2}
+          - {video_id: "v1", date_file_excel: "2025-12-29", time: "2025-03-01", brand: "DHC", creator_id: "a", duration_date: 7, range_date: 30, prod_contain: "kẽm", prod_contain_combo: "kẽm", "Ngày gửi mẫu": "2025-02-25", "Phân loại Creator": "S", "Group creator": "S", pic_user_id: 1, "Vị trí": "top", "Mẫu gửi": "m1", nguon_yeu_cau: "web", vv: 300, click_on_the_product: 3, count_order: 3, video_revenue: 3000, product_impressions: 30, unit_sales: 3}
     expect:
       rows:
         - {video_id: "v1", thang: "2025-03", tuan: "2025-11", so_view: 100, so_don: 1, gmv: 1000}
@@ -140,8 +156,8 @@ unit_tests:
     given:
       - input: ref('stg_performance_list')
         rows:
-          - {video_id: "v1", time: "2025-03-01", product_name: "DHC combo b mix", creator_name: "a"}
-          - {video_id: "v2", time: "2025-03-01", product_name: "Togishi kem chống nắng", creator_name: "b"}
+          - {video_id: "v1", time: "2025-03-01", product_name: "DHC combo b mix", creator_name: "a", creator_id: "a"}
+          - {video_id: "v2", time: "2025-03-01", product_name: "Togishi kem chống nắng", creator_name: "b", creator_id: "b"}
       - input: ref('stg_product_name_map')
         rows:
           - {video_id: "v1", product_contain: "b mix", product_contain_combo: "combo b mix + c"}
@@ -166,16 +182,16 @@ unit_tests:
     given:
       - input: ref('stg_performance_list')
         rows:
-          - {video_id: "v1", time: "2025-03-10", date_file_excel: "2025-03-12", product_name: "x", creator_name: "a"}
+          - {video_id: "v1", time: "2025-03-10", date_file_excel: "2025-03-12", product_name: "x", creator_name: "a", creator_id: "a"}
           # v2: KHÔNG thỏa (creator "z" không có mẫu) nhưng range_date VẪN được tính
-          - {video_id: "v2", time: "2025-03-01", date_file_excel: "2025-03-20", product_name: "y", creator_name: "z"}
+          - {video_id: "v2", time: "2025-03-01", date_file_excel: "2025-03-20", product_name: "y", creator_name: "z", creator_id: "z"}
       - input: ref('stg_product_name_map')
         rows:
           - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
           - {video_id: "v2", product_contain: "kẽm", product_contain_combo: null}
       - input: ref('int_send_sample')
         rows:
-          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "An", team: "T1", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "S"}
+          - {koc_kol: "a", creator_id: "a", pic_user_id: 1, prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "An", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "S"}
       - input: ref('int_valid_classification')
         rows:
           - {phan_loai_creator: "S"}
@@ -201,14 +217,14 @@ unit_tests:
     given:
       - input: ref('stg_performance_list')
         rows:
-          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a"}
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a", creator_id: "a"}
       - input: ref('stg_product_name_map')
         rows:
           - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
       - input: ref('int_send_sample')
         rows:
-          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "An", team: "T1", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "S"}
-          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-06", ngay_ket_thuc: "2099-12-31", pic_rename: "An", team: "T1", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "L1"}
+          - {koc_kol: "a", creator_id: "a", pic_user_id: 1, prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "An", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "S"}
+          - {koc_kol: "a", creator_id: "a", pic_user_id: 1, prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-06", ngay_ket_thuc: "2099-12-31", pic_rename: "An", vi_tri: "top", product_detail: "kẽm", phan_loai_creator_fix: "L1"}
       - input: ref('int_valid_classification')
         rows:
           - {phan_loai_creator: "S"}
@@ -230,13 +246,13 @@ unit_tests:
     given:
       - input: ref('stg_performance_list')
         rows:
-          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a"}
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a", creator_id: "a"}
       - input: ref('stg_product_name_map')
         rows:
           - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
       - input: ref('int_send_sample')
         rows:
-          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", team: "T1", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S"}
+          - {koc_kol: "a", creator_id: "a", pic_user_id: 1, prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S"}
       - input: ref('int_valid_classification')
         rows:
           - {phan_loai_creator: "S"}
@@ -244,12 +260,14 @@ unit_tests:
         rows: []
     expect:
       rows:
-        - {video_id: "v1", "PIC": "Anh", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "mẫu A"}
+        - {video_id: "v1", "PIC": "Anh", "Vị trí": "top", "Mẫu gửi": "mẫu A"}
 
-  # ── Nhóm 5: khớp creator KHÔNG phân biệt hoa/thường (như DAX) ───
-  # creator_name 'longhousee' (thường) phải khớp koc_kol 'Longhousee' (hoa).
-  # Trên code cũ (join phân biệt hoa/thường) test này FAIL: các cột pick = null.
-  - name: ut_mart_creator_case_insensitive
+  # ── Nhóm 5: creator ĐỔI TÊN vẫn khớp được mẫu gửi ──────────────
+  # Video mang tên MỚI ('ten_moi'), bản ghi gửi mẫu lưu tên CŨ ('ten_cu'),
+  # nhưng cùng creator_id -> phải khớp. Trên code cũ (join theo TÊN) test này FAIL:
+  # mọi cột pick = null, duration_date = -1, Phân loại Creator = 'Organic'.
+  # Đây là lỗi đang ảnh hưởng ~8.430 video (3,9%).
+  - name: ut_mart_creator_doi_ten
     model: mart_data
     overrides:
       macros:
@@ -259,13 +277,13 @@ unit_tests:
     given:
       - input: ref('stg_performance_list')
         rows:
-          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "longhousee"}
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "ten_moi", creator_id: "C1"}
       - input: ref('stg_product_name_map')
         rows:
           - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
       - input: ref('int_send_sample')
         rows:
-          - {koc_kol: "Longhousee", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", team: "T1", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S"}
+          - {koc_kol: "ten_cu", creator_id: "C1", pic_user_id: 1, prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S"}
       - input: ref('int_valid_classification')
         rows:
           - {phan_loai_creator: "S"}
@@ -273,7 +291,7 @@ unit_tests:
         rows: []
     expect:
       rows:
-        - {video_id: "v1", "Ngày gửi mẫu": "2025-03-05", "PIC": "Anh", "Team": "T1", "Vị trí": "top", "Mẫu gửi": "mẫu A", "Phân loại Creator": "S"}
+        - {video_id: "v1", "Ngày gửi mẫu": "2025-03-05", "PIC": "Anh", "Vị trí": "top", "Mẫu gửi": "mẫu A", "Phân loại Creator": "S"}
 
   # ── Nhóm 6: campaign_id theo cụm vm_pick ───────────────────────
   - name: ut_mart_campaign_id
@@ -290,15 +308,15 @@ unit_tests:
     given:
       - input: ref('stg_performance_list')
         rows:
-          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a"}
-          - {video_id: "v2", time: "2025-03-01", product_name: "x", creator_name: "a"}
+          - {video_id: "v1", time: "2025-03-10", product_name: "x", creator_name: "a", creator_id: "a"}
+          - {video_id: "v2", time: "2025-03-01", product_name: "x", creator_name: "a", creator_id: "a"}
       - input: ref('stg_product_name_map')
         rows:
           - {video_id: "v1", product_contain: "kẽm", product_contain_combo: null}
           - {video_id: "v2", product_contain: "kẽm", product_contain_combo: null}
       - input: ref('int_send_sample')
         rows:
-          - {koc_kol: "a", prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", team: "T1", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S", campaign_id: "5"}
+          - {koc_kol: "a", creator_id: "a", pic_user_id: 1, prod_contain: "kẽm", sl: 2, ngay_duyet_mau: "2025-03-05", ngay_ket_thuc: "2099-12-31", pic_rename: "Anh", vi_tri: "top", product_detail: "mẫu A", phan_loai_creator_fix: "S", campaign_id: "5"}
       - input: ref('int_valid_classification')
         rows:
           - {phan_loai_creator: "S"}

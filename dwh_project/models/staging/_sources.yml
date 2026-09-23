@@ -1,7 +1,8 @@
 version: 2
 
 # ─────────────────────────────────────────────────────────────
-# NGUỒN raw — 4 bảng đã load từ MySQL sang schema raw trên Postgres.
+# NGUỒN raw — 5 bảng đã load sang schema raw trên Postgres:
+#   4 bảng từ MySQL (tiktok_dashboard) + 1 bảng từ Postgres `krm` (users).
 # database/schema đọc động từ vars (dbt_project.yml). Đổi nguồn bằng
 # env SRC_* hoặc --vars '{raw_schema: xxx}'.
 # ─────────────────────────────────────────────────────────────
@@ -18,3 +19,7 @@ sources:
         description: "get_product_name_from_video_tiktok — map video_id -> tên SP chuẩn."
       - name: pic_team
         description: "PIC_Team — map tên PIC gốc -> tên đổi + team."
+      - name: users
+        description: >
+          public.users của Postgres `krm` — nhân sự nội bộ (id, username, team).
+          Là nguồn GỐC cho danh tính PIC. Chỉ lấy 4 cột; KHÔNG kéo password/email.

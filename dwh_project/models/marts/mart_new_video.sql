@@ -16,13 +16,15 @@
 -- window tính _min_time rồi group by video_id, thay vì 2 CTE (dims + totals) rồi join.
 {{ config(
     materialized='table',
+    alias='mart_new_video_new', 
     pre_hook=["set work_mem = '256MB'", "set jit = off"]
 ) }}
 
 with base as (
     select
-        video_id, "time", creator_name, "Mẫu gửi", brand, "PIC", "Team",
+        video_id, "time", creator_id, "Mẫu gửi", brand, pic_user_id,
         prod_contain, prod_contain_combo, "Vị trí", nguon_yeu_cau, campaign_id,
+        koc_booking_content_id,
         vv, count_order, video_revenue, duration_date,
         min("time") filter (where duration_date > 0) over (partition by video_id) as _min_time
     from {{ ref('mart_data') }}
@@ -31,16 +33,16 @@ with base as (
 select
     video_id,
     min("time") filter (where duration_date > 0)                                    as "time",
-    max(creator_name)       filter (where duration_date > 0 and "time" = _min_time) as creator_name,
+    max(creator_id)         filter (where duration_date > 0 and "time" = _min_time) as creator_id,
     max("Mẫu gửi")          filter (where duration_date > 0 and "time" = _min_time) as "Mẫu gửi",
     max(brand)              filter (where duration_date > 0 and "time" = _min_time) as brand,
-    max("PIC")              filter (where duration_date > 0 and "time" = _min_time) as "PIC",
-    max("Team")             filter (where duration_date > 0 and "time" = _min_time) as "Team",
+    max(pic_user_id)        filter (where duration_date > 0 and "time" = _min_time) as pic_user_id,
     max(prod_contain)       filter (where duration_date > 0 and "time" = _min_time) as prod_contain,
     max(prod_contain_combo) filter (where duration_date > 0 and "time" = _min_time) as prod_contain_combo,
     max("Vị trí")           filter (where duration_date > 0 and "time" = _min_time) as "Vị trí",
     max(nguon_yeu_cau)      filter (where duration_date > 0 and "time" = _min_time) as nguon_yeu_cau,
     max(campaign_id)        filter (where duration_date > 0 and "time" = _min_time) as campaign_id,
+    max(koc_booking_content_id) filter (where duration_date > 0 and "time" = _min_time) as koc_booking_content_id,
     (sum(count_order))::bigint as so_don,
     (sum(vv))::bigint          as "View",
     coalesce(sum(video_revenue), 0)::bigint as gmv

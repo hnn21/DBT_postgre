@@ -1,0 +1,66 @@
+version: 2
+
+models:
+  - name: map_creator
+    description: >
+      Kho TÍCH LUỸ mọi cặp (creator_id, creator_name) từng thấy. Bảng vật lý,
+      chỉ-thêm, có full_refresh=false để không bị xoá khi chạy --full-refresh.
+    columns:
+      - name: creator_id
+        tests: [not_null]
+      - name: creator_name_key
+        tests: [not_null]
+
+  - name: map_creator_resolve
+    description: "Chỉ các creator_name phân giải được DUY NHẤT về 1 creator_id."
+    columns:
+      - name: creator_name_key
+        tests: [unique, not_null]
+      - name: creator_id
+        tests: [not_null]
+
+  - name: dim_creator
+    description: "1 dòng / creator_id, creator_name MỚI NHẤT. Đích join của Power BI."
+    columns:
+      - name: creator_id
+        tests: [unique, not_null]
+
+  - name: dim_pic
+    description: >
+      1 dòng / user_id từ public.users của krm. Đích join của Power BI
+      (dim_pic[user_id] -> mart_data_agg[pic_user_id]).
+    columns:
+      - name: user_id
+        tests: [unique, not_null]
+
+  - name: mart_send_sample
+    description: >
+      1 dòng = 1 lần gửi mẫu. Vật chất hoá từ int_send_sample cho Power BI đọc,
+      kèm creator_id + pic_user_id và so_video_ket_qua (số video THỰC TẾ đã ra
+      theo koc_booking_content_id, đếm từ mart_new_video).
+      ĐÃ LOẠI mst_cccd + sdt vì là dữ liệu định danh cá nhân của KOC.
+    columns:
+      - name: koc_kol
+        description: "Tên KOC tại thời điểm gửi mẫu (nguyên bản từ nguồn)."
+      - name: creator_id
+        description: >
+          Danh tính creator TikTok, tra từ map_creator_resolve theo tên.
+          NULL khi tên không phân giải được duy nhất. Join dim_creator để lấy tên mới nhất.
+      - name: pic_user_id
+        description: "users.id của PIC. Join dim_pic để lấy username/team."
+      - name: so_video
+        description: "Số video CAM KẾT của lần gửi mẫu này (từ nguồn)."
+      - name: so_video_ket_qua
+        description: >
+          Số video THỰC TẾ đã ra cho lần gửi mẫu này (distinct video_id trong
+          mart_new_video). Hai nhánh: (1) theo koc_booking_content_id khi có;
+          (2) khớp creator_id + prod_contain + pic_user_id + video lên TRONG khoảng
+          hiệu lực [ngay_duyet_mau .. ngay_ket_thuc].
+          0 = đếm được nhưng không ra video nào. NULL = KHÔNG đếm được (thiếu
+          creator_id/prod_contain/pic_user_id) — KHÁC HẲN 0, đừng gộp hai ca.
+          Đã kiểm: 2 nhánh không chồng lấn, tổng cộng dồn = số video khác nhau,
+          nên SUM an toàn trong Power BI.
+      - name: cach_tinh_so_video
+        description: >
+          'booking_id' | 'khop_dieu_kien' | NULL — cách đã dùng để tính so_video_ket_qua.
+          Dùng để đối chiếu; nhánh booking chính xác hơn vì liên kết trực tiếp.

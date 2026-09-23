@@ -30,6 +30,13 @@ seeds:
     videos_id_agency:
       +column_types:
         video_id: varchar
+    pic_user_map:
+      # Ép varchar: user_id là ĐỊNH DANH, không phải số để tính toán. Nếu để dbt tự suy
+      # kiểu, cột đang trống sẽ thành integer (hoặc bool) rồi vỡ khi điền id thật.
+      # Cùng lý do với video_id/creator_id đang là text ở tầng staging.
+      +column_types:
+        pic_trong_send_sample: varchar
+        user_id: varchar
 
 # ─────────────────────────────────────────────────────────────
 # ĐÍCH: schema output cho từng tầng model.

@@ -8,7 +8,7 @@ models:
 
 unit_tests:
   - name: ut_int_send_sample_derived
-    description: "prod_contain (SWITCH), pic_rename/team (join PIC_Team), product_detail (sheet adolph), ngay_ket_thuc (LEAD - 1 ngày)."
+    description: "prod_contain (SWITCH), pic_rename (join PIC_Team), product_detail (sheet adolph), ngay_ket_thuc (LEAD - 1 ngày), creator_id (tra map_creator_resolve)."
     model: int_send_sample
     given:
       - input: ref('stg_send_sample')
@@ -17,11 +17,39 @@ unit_tests:
           - {ngay_duyet_mau: "2025-02-01", koc_kol: "a", pic: "An", phan_loai_creator: "S", ten_san_pham: "DHC Vitamin C mini", sheet: "dhc",      sl: 1, vi_tri: "top", cost: 1}
       - input: ref('stg_pic_team')
         rows:
-          - {raw_name: "An", doi_ten: "Anh", team: "T1"}
+          - {raw_name: "An", doi_ten: "Anh"}
+      - input: ref('map_creator_resolve')
+        rows:
+          - {creator_name_key: "a", creator_id: "111"}
     expect:
       rows:
-        - {ngay_duyet_mau: "2025-01-01", prod_contain: "vitamin c", pic_rename: "Anh", team: "T1", product_detail: "vitamin c", ngay_ket_thuc: "2025-01-31"}
-        - {ngay_duyet_mau: "2025-02-01", prod_contain: "vitamin c", pic_rename: "Anh", team: "T1", product_detail: "DHC Vitamin C mini", ngay_ket_thuc: "2099-12-31"}
+        - {ngay_duyet_mau: "2025-01-01", creator_id: "111", prod_contain: "vitamin c", pic_rename: "Anh", product_detail: "vitamin c", ngay_ket_thuc: "2025-01-31"}
+        - {ngay_duyet_mau: "2025-02-01", creator_id: "111", prod_contain: "vitamin c", pic_rename: "Anh", product_detail: "DHC Vitamin C mini", ngay_ket_thuc: "2099-12-31"}
+
+  - name: ut_int_send_sample_doi_ten
+    description: >
+      CA ĐỔI TÊN: cùng một creator gửi mẫu 2 lần dưới 2 TÊN KHÁC NHAU.
+      Vì partition theo creator_id (không phải koc_kol), 2 lần này phải xếp thành dải
+      NỐI TIẾP: lần 1 kết thúc trước lần 2. Nếu partition theo tên, cả hai sẽ cùng có
+      ngay_ket_thuc = 2099-12-31 -> khoảng hiệu lực CHỒNG LẤN -> video khớp cả 2 bản ghi
+      và lấy nhầm giá trị của lần gửi mẫu cũ hơn. Đây là bug im lặng, test này chặn nó.
+    model: int_send_sample
+    given:
+      - input: ref('stg_send_sample')
+        rows:
+          - {ngay_duyet_mau: "2025-01-01", koc_kol: "ten_cu",  pic: "An", phan_loai_creator: "S", ten_san_pham: "DHC Vitamin C mini", sheet: "dhc", sl: 1, vi_tri: "top", cost: 1}
+          - {ngay_duyet_mau: "2025-02-01", koc_kol: "ten_moi", pic: "An", phan_loai_creator: "S", ten_san_pham: "DHC Vitamin C mini", sheet: "dhc", sl: 1, vi_tri: "top", cost: 1}
+      - input: ref('stg_pic_team')
+        rows:
+          - {raw_name: "An", doi_ten: "Anh"}
+      - input: ref('map_creator_resolve')
+        rows:
+          - {creator_name_key: "ten_cu",  creator_id: "111"}
+          - {creator_name_key: "ten_moi", creator_id: "111"}
+    expect:
+      rows:
+        - {koc_kol: "ten_cu",  creator_id: "111", ngay_ket_thuc: "2025-01-31"}
+        - {koc_kol: "ten_moi", creator_id: "111", ngay_ket_thuc: "2099-12-31"}
 
   - name: ut_int_valid_classification
     description: "DISTINCT phân loại hợp lệ (loại quà/nghiệm/house/rỗng) UNION {T, L2.1, L2.2}."

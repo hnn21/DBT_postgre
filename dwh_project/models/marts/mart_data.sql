@@ -56,6 +56,7 @@ prod as (
             when b.product_name ilike '%kem chống nắng%' and b.product_name ilike '%togishi%' then 'Kem chống nắng'
             when b.product_name ilike '%vệ sinh nam%' then 'VSnam'
             when b.product_name ilike '%wash gel%' and b.product_name ilike '%togishi%' then 'VSnam'
+            when b.product_name ilike '%sunscreen%' and b.product_name ilike '%togishi%' then 'Kem chống nắng'
             when b.product_name ilike '%COLD CREAM%' or b.product_name ilike '%kem lạnh%' then 'Cold cream'
             when b.product_name ilike '%FOAMING FACE WASH%' then 'FOAMING FACE WASH'
             when b.product_name ilike '%WHITENING MOISTURE GEL%' then 'WHITENING MOISTURE GEL'
@@ -85,25 +86,26 @@ enriched as (
 
 -- ── Các grain rút gọn để tính pick ────────────────────────────────
 keys_cpt as (
-    select distinct creator_name, prod_contain, time
+    select distinct creator_id, prod_contain, time
     from enriched
-    where prod_contain is not null and time is not null
+    where prod_contain is not null and time is not null and creator_id is not null
 ),
 
 -- (3) Ngày gửi mẫu = MIN(ngay_duyet_mau) theo (creator, prod), SL>0
 gui_mau_map as (
     -- Gom theo lower(koc_kol) để khớp creator KHÔNG phân biệt hoa/thường (như DAX)
     -- và tránh fan-out nếu send có cả 'Abc' lẫn 'abc'.
-    select lower(s.koc_kol) as creator_key, s.prod_contain, min(s.ngay_duyet_mau) as ngay_gui_mau
+    select s.creator_id, s.prod_contain, min(s.ngay_duyet_mau) as ngay_gui_mau
     from send s
     where s.sl > 0 and s.prod_contain is not null and length(s.prod_contain) > 0
-    group by lower(s.koc_kol), s.prod_contain
+      and s.creator_id is not null
+    group by s.creator_id, s.prod_contain
 ),
 
 -- (7) picked classification theo (creator, prod, time): priority nhỏ nhất -> max(fix)
 pl_ranked as (
     select
-        k.creator_name, k.prod_contain, k.time,
+        k.creator_id, k.prod_contain, k.time,
         s.phan_loai_creator_fix,
         case s.phan_loai_creator_fix
             when 'S+' then 1 when 'T' then 2 when 'S' then 3 when 'M' then 4
@@ -112,22 +114,22 @@ pl_ranked as (
         end as priority
     from keys_cpt k
     join send s
-      on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
+      on s.creator_id = k.creator_id
      and s.prod_contain = k.prod_contain
      and s.ngay_duyet_mau <= k.time
      and (s.ngay_ket_thuc is null or k.time <= s.ngay_ket_thuc)
 ),
 pl_pick as (
-    select creator_name, prod_contain, time,
+    select creator_id, prod_contain, time,
            max(phan_loai_creator_fix) filter (where priority = min_priority) as picked
     from (
-        select r.*, min(priority) over (partition by creator_name, prod_contain, time) as min_priority
+        select r.*, min(priority) over (partition by creator_id, prod_contain, time) as min_priority
         from pl_ranked r
     ) z
-    group by creator_name, prod_contain, time
+    group by creator_id, prod_contain, time
 ),
 pl_pick_v as (
-    select p.creator_name, p.prod_contain, p.time, p.picked,
+    select p.creator_id, p.prod_contain, p.time, p.picked,
            case when v.phan_loai_creator is not null then p.picked else null end as group_value
     from pl_pick p
     left join valid v on p.picked = v.phan_loai_creator
@@ -135,10 +137,10 @@ pl_pick_v as (
 
 -- (11) PIC theo (creator, prod, time): bản ghi SL>0 có ngay_duyet_mau sớm nhất -> max(pic_rename)
 pic_ranked as (
-    select k.creator_name, k.prod_contain, k.time, s.pic_rename, s.ngay_duyet_mau
+    select k.creator_id, k.prod_contain, k.time, s.pic_rename, s.pic_user_id, s.ngay_duyet_mau
     from keys_cpt k
     join send s
-      on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
+      on s.creator_id = k.creator_id
      and s.prod_contain = k.prod_contain
      and s.sl > 0
      and length(s.prod_contain) > 0 and length(s.koc_kol) > 0
@@ -146,45 +148,39 @@ pic_ranked as (
      and k.time <= s.ngay_ket_thuc
 ),
 pic_pick as (
-    select creator_name, prod_contain, time,
-           max(pic_rename) filter (where ngay_duyet_mau = mn) as "PIC"
+    select creator_id, prod_contain, time,
+           max(pic_rename)  filter (where ngay_duyet_mau = mn) as "PIC",
+           max(pic_user_id) filter (where ngay_duyet_mau = mn) as pic_user_id
     from (
-        select r.*, min(ngay_duyet_mau) over (partition by creator_name, prod_contain, time) as mn
+        select r.*, min(ngay_duyet_mau) over (partition by creator_id, prod_contain, time) as mn
         from pic_ranked r
     ) z
-    group by creator_name, prod_contain, time
+    group by creator_id, prod_contain, time
 ),
 
 -- (13)(14)(15) Vị trí, Mẫu gửi, nguon_yeu_cau theo (creator, prod, time): LỌC SL>0
 vm_ranked as (
-    select k.creator_name, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.nguon_yeu_cau, s.campaign_id, s.ngay_duyet_mau
+    select k.creator_id, k.prod_contain, k.time, s.vi_tri, s.product_detail, s.nguon_yeu_cau, s.campaign_id, s.koc_booking_content_id, s.ngay_duyet_mau
     from keys_cpt k
     join send s
-      on lower(s.koc_kol) = lower(k.creator_name)   -- khớp KHÔNG phân biệt hoa/thường (như DAX)
+      on s.creator_id = k.creator_id
      and s.prod_contain = k.prod_contain
      and s.sl > 0
      and s.ngay_duyet_mau <= k.time
      and k.time <= s.ngay_ket_thuc
 ),
 vm_pick as (
-    select creator_name, prod_contain, time,
+    select creator_id, prod_contain, time,
            max(vi_tri)         filter (where ngay_duyet_mau = mn) as "Vị trí",
            max(product_detail) filter (where ngay_duyet_mau = mn) as "Mẫu gửi",
            max(nguon_yeu_cau)  filter (where ngay_duyet_mau = mn) as nguon_yeu_cau,
-           max(campaign_id)    filter (where ngay_duyet_mau = mn) as campaign_id
+           max(campaign_id)    filter (where ngay_duyet_mau = mn) as campaign_id,
+           max(koc_booking_content_id) filter (where ngay_duyet_mau = mn) as koc_booking_content_id
     from (
-        select r.*, min(ngay_duyet_mau) over (partition by creator_name, prod_contain, time) as mn
+        select r.*, min(ngay_duyet_mau) over (partition by creator_id, prod_contain, time) as mn
         from vm_ranked r
     ) z
-    group by creator_name, prod_contain, time
-),
-
--- (12) Team theo PIC (FIRSTNONBLANK ~ max không rỗng)
-team_map as (
-    select pic_rename, max(team) as team
-    from send
-    where team is not null and team <> ''
-    group by pic_rename
+    group by creator_id, prod_contain, time
 ),
 
 -- ── Gộp toàn bộ "pick" về 1 bảng hẹp cùng grain (creator, prod, time) ──
@@ -195,20 +191,22 @@ team_map as (
 -- enriched có đúng 1 (creator,prod,time) nên LEFT JOIN cho giá trị y hệt bản cũ.
 picks as materialized (
     select
-        k.creator_name, k.prod_contain, k.time,
+        k.creator_id, k.prod_contain, k.time,
         plv.group_value as _group_value,
         pp."PIC"        as _pic,
+        pp.pic_user_id  as _pic_user_id,
         vm."Vị trí"     as _vi_tri,
         vm."Mẫu gửi"    as _mau_gui,
         vm.nguon_yeu_cau as _nguon_yeu_cau,
-        vm.campaign_id   as _campaign_id
+        vm.campaign_id   as _campaign_id,
+        vm.koc_booking_content_id as _koc_booking_content_id
     from keys_cpt k
     left join pl_pick_v plv
-      on k.creator_name = plv.creator_name and k.prod_contain = plv.prod_contain and k.time = plv.time
+      on k.creator_id = plv.creator_id and k.prod_contain = plv.prod_contain and k.time = plv.time
     left join pic_pick pp
-      on k.creator_name = pp.creator_name and k.prod_contain = pp.prod_contain and k.time = pp.time
+      on k.creator_id = pp.creator_id and k.prod_contain = pp.prod_contain and k.time = pp.time
     left join vm_pick vm
-      on k.creator_name = vm.creator_name and k.prod_contain = vm.prod_contain and k.time = vm.time
+      on k.creator_id = vm.creator_id and k.prod_contain = vm.prod_contain and k.time = vm.time
 ),
 
 -- ── Ráp về từng dòng ──────────────────────────────────────────────
@@ -218,15 +216,17 @@ j as (
         gm.ngay_gui_mau                 as "Ngày gửi mẫu",
         pk._group_value                 as _group_value,
         pk._pic                         as _pic,
+        pk._pic_user_id                 as _pic_user_id,
         pk._vi_tri                      as _vi_tri,
         pk._mau_gui                     as _mau_gui,
         pk._nguon_yeu_cau               as _nguon_yeu_cau,
-        pk._campaign_id                 as _campaign_id
+        pk._campaign_id                 as _campaign_id,
+        pk._koc_booking_content_id      as _koc_booking_content_id
     from enriched e
     left join gui_mau_map gm
-      on lower(e.creator_name) = gm.creator_key and e.prod_contain = gm.prod_contain
+      on e.creator_id = gm.creator_id and e.prod_contain = gm.prod_contain
     left join picks pk
-      on e.creator_name = pk.creator_name and e.prod_contain = pk.prod_contain and e.time = pk.time
+      on e.creator_id = pk.creator_id and e.prod_contain = pk.prod_contain and e.time = pk.time
 ),
 
 -- (4) duration_date: DẤU thỏa/không, TĨNH (không phụ thuộc run_date -> không "trôi").
@@ -315,13 +315,13 @@ final as (
         g."Phân loại Creator",
         g."Group creator",
         g._pic     as "PIC",
-        tm.team    as "Team",
+        g._pic_user_id as pic_user_id,
         g._vi_tri  as "Vị trí",
         g._mau_gui as "Mẫu gửi",
         g._nguon_yeu_cau as nguon_yeu_cau,
-        g._campaign_id   as campaign_id
+        g._campaign_id   as campaign_id,
+        g._koc_booking_content_id as koc_booking_content_id
     from grp g
-    left join team_map tm on g._pic = tm.pic_rename
 )
 
 select * from final
